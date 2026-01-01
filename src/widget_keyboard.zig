@@ -175,6 +175,8 @@ pub fn handleInputKey(app: *ginwaGTK, widget: *Widget, key: u32, shift_pressed: 
             widget.cursor_position = widget.input_text.len;
             std.debug.print("Select all: 0-{}\n", .{widget.input_text.len});
         }
+        // Ensure cursor is visible after select all
+        wr.ensureCursorVisible(widget, widget.width);
         return;
     }
 
@@ -232,6 +234,13 @@ pub fn handleInputKey(app: *ginwaGTK, widget: *Widget, key: u32, shift_pressed: 
     } else if (key == KEY_BACKSPACE) {
         // Delete character before cursor (selection already deleted above if exists)
         if (widget.cursor_position > 0) {
+            // Check minimum length constraint
+            const min_len = @max(0, widget.min_input_text_length);
+            if (@as(i32, @intCast(widget.input_text.len)) <= min_len) {
+                // At minimum length, can't delete more
+                return;
+            }
+
             const new_text = alloc.alloc(u8, widget.input_text.len - 1) catch return;
 
             if (widget.cursor_position > 1) {
@@ -250,6 +259,13 @@ pub fn handleInputKey(app: *ginwaGTK, widget: *Widget, key: u32, shift_pressed: 
     } else if (key == KEY_DELETE) {
         // Delete character at cursor
         if (widget.cursor_position < widget.input_text.len) {
+            // Check minimum length constraint
+            const min_len = @max(0, widget.min_input_text_length);
+            if (@as(i32, @intCast(widget.input_text.len)) <= min_len) {
+                // At minimum length, can't delete more
+                return;
+            }
+
             const new_text = alloc.alloc(u8, widget.input_text.len - 1) catch return;
 
             if (widget.cursor_position > 0) {
@@ -269,9 +285,18 @@ pub fn handleInputKey(app: *ginwaGTK, widget: *Widget, key: u32, shift_pressed: 
     } else {
         // Insert character at cursor position
         if (keycodeToChar(key, shift_pressed)) |char| {
+            // Check maximum length constraint
+            const max_len = widget.max_input_text_length;
+            if (max_len > 0 and @as(i32, @intCast(widget.input_text.len)) >= max_len) {
+                // At maximum length, can't add more
+                return;
+            }
             insertCharAtCursor(widget, char, alloc);
         }
     }
+
+    // Ensure cursor is visible after any operation
+    wr.ensureCursorVisible(widget, widget.width);
 }
 
 fn deleteSelection(widget: *Widget, alloc: std.mem.Allocator) void {
@@ -287,6 +312,16 @@ fn deleteSelection(widget: *Widget, alloc: std.mem.Allocator) void {
     }
 
     const new_len = widget.input_text.len - (end - start);
+
+    // Check minimum length constraint
+    const min_len = @max(0, widget.min_input_text_length);
+    if (@as(i32, @intCast(new_len)) < min_len) {
+        // Can't delete selection as it would go below minimum length
+        widget.selection_start = null;
+        widget.selection_end = null;
+        return;
+    }
+
     if (new_len == 0) {
         if (widget.input_text.len > 0) {
             alloc.free(widget.input_text);

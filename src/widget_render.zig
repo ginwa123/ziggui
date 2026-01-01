@@ -637,7 +637,7 @@ pub fn renderEventLoop(app: *ginwaGTK) void {
     }
 }
 
-fn ensureCursorVisible(self: *Widget, widget_width: i32) void {
+pub fn ensureCursorVisible(self: *Widget, widget_width: i32) void {
     const text = if (self.input_text.len > 0) self.input_text else self.text;
     if (text.len == 0) {
         self.scroll_offset = 0; // Reset scroll when empty
@@ -681,18 +681,20 @@ fn ensureCursorVisible(self: *Widget, widget_width: i32) void {
     c.pango_layout_set_font_description(layout, font_desc);
 
     // Get cursor position in pixels (relative to text start)
-    var cursor_x: i32 = 0;
-    var cursor_y: i32 = 0;
-    _ = c.pango_layout_get_cursor_pos(layout, @as(i32, @intCast(self.cursor_position)), &cursor_x, &cursor_y);
+    var cursor_rect: c.PangoRectangle = undefined;
+    _ = c.pango_layout_get_cursor_pos(layout, @as(i32, @intCast(self.cursor_position)), &cursor_rect, null);
 
-    const cursor_pixel_x = @as(usize, @intCast(@divFloor(cursor_x, c.PANGO_SCALE)));
+    const cursor_pixel_x = @as(usize, @intCast(@divFloor(cursor_rect.x, c.PANGO_SCALE)));
 
     // Get total text width
-    const text_width = @as(usize, @intCast(c.pango_layout_get_pixel_width(layout)));
+    var ink_rect: c.PangoRectangle = undefined;
+    var logical_rect: c.PangoRectangle = undefined;
+    c.pango_layout_get_pixel_extents(layout, &ink_rect, &logical_rect);
+    const text_width = @as(usize, @intCast(logical_rect.width));
 
     // Calculate visible area (accounting for padding)
     const padding = self.padding;
-    const available_width = widget_width - (padding * 2);
+    const available_width: usize = @intCast(@max(0, widget_width - (padding * 2)));
 
     // FIX: If total text is longer than available space, auto-scroll to show the end
     if (text_width > available_width) {
@@ -704,14 +706,16 @@ fn ensureCursorVisible(self: *Widget, widget_width: i32) void {
     }
 
     // Also ensure cursor is visible (keep existing logic)
-    if (cursor_pixel_x < self.scroll_offset) {
+    const current_scroll = self.scroll_offset orelse 0;
+    if (cursor_pixel_x < current_scroll) {
         self.scroll_offset = if (cursor_pixel_x < 50) 0 else cursor_pixel_x - 50;
-    } else if (cursor_pixel_x > self.scroll_offset + available_width) {
+    } else if (cursor_pixel_x > current_scroll + available_width) {
         self.scroll_offset = cursor_pixel_x - available_width + 50;
     }
 
     // Don't scroll past text end
-    if (self.scroll_offset > text_width) {
+    const final_scroll = self.scroll_offset orelse 0;
+    if (final_scroll > text_width) {
         self.scroll_offset = text_width;
     }
 }

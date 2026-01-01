@@ -376,6 +376,8 @@ pub const Widget = struct {
     height: i32 = 0,
     padding: i32 = 0,
     input_text: []const u8 = "",
+    max_input_text_length: i32 = 0,
+    min_input_text_length: i32 = 0,
     text: []const u8 = "",
     font_size: i32 = 11,
     font_type: [*:0]const u8 = "Arial",
@@ -535,6 +537,8 @@ pub const PropsInput = struct {
     padding: i32 = 8,
     font_size: i32 = 14,
     font_color: u32 = 0xFFFFFFFF,
+    max_input_text_length: i32 = 0,
+    min_input_text_length: i32 = 0,
 };
 
 pub fn c_input(alloc: std.mem.Allocator, props: PropsInput) !*Widget {
@@ -560,6 +564,8 @@ pub fn c_input(alloc: std.mem.Allocator, props: PropsInput) !*Widget {
         .font_size = props.font_size,
         .font_color = props.font_color,
         .font_alignment = .CenterLeft,
+        .max_input_text_length = props.max_input_text_length,
+        .min_input_text_length = props.min_input_text_length,
     };
 
     return widget;
