@@ -1,0 +1,717 @@
+const std = @import("std");
+const utils = @import("utils.zig");
+const w = @import("widget.zig");
+const wk = @import("widget_keyboard.zig");
+const c = w.c;
+const Widget = w.Widget;
+const ginwaGTK = w.ginwaGTK;
+
+pub fn renderText(
+    widget: *Widget,
+    pixels: [*]u32,
+    pitch_bytes: usize,
+    buf_w: usize,
+    buf_h: usize,
+    app: *ginwaGTK, // ADD THIS PARAMETER
+) void {
+    // Skip rendering if no text and not an Input widget
+    if (widget.text.len == 0 and widget.widget_type != .Input) return;
+
+    const stride = @as(i32, @intCast(pitch_bytes));
+    const surface = c.cairo_image_surface_create_for_data(
+        @ptrCast(pixels),
+        c.CAIRO_FORMAT_ARGB32,
+        @as(i32, @intCast(buf_w)),
+        @as(i32, @intCast(buf_h)),
+        stride,
+    );
+    defer c.cairo_surface_destroy(surface);
+
+    const cr = c.cairo_create(surface);
+    defer c.cairo_destroy(cr);
+
+    c.cairo_rectangle(cr, @as(f64, @floatFromInt(widget.x)), @as(f64, @floatFromInt(widget.y)), @as(f64, @floatFromInt(widget.width)), @as(f64, @floatFromInt(widget.height)));
+    c.cairo_clip(cr);
+
+    const layout = c.pango_cairo_create_layout(cr);
+    defer c.g_object_unref(layout);
+
+    // Use input_text for Input widgets, otherwise use text
+    const display_text = if (widget.widget_type == .Input and widget.input_text.len > 0)
+        widget.input_text
+    else
+        widget.text;
+
+    c.pango_layout_set_text(layout, display_text.ptr, @as(i32, @intCast(display_text.len)));
+
+    // Create font description with size
+    var font_buf: [128]u8 = undefined;
+    const font_str_z = if (widget.font_size > 0)
+        std.fmt.bufPrintZ(&font_buf, "{s} {d}", .{
+            widget.font_type,
+            widget.font_size,
+        }) catch "Sans 16"
+    else
+        std.fmt.bufPrintZ(&font_buf, "{s}", .{widget.font_type}) catch "Sans";
+
+    const font_desc = c.pango_font_description_from_string(font_str_z);
+    defer c.pango_font_description_free(font_desc);
+
+    c.pango_font_description_set_weight(font_desc, widget.font_weight.toPangoWeight());
+    c.pango_layout_set_font_description(layout, font_desc);
+
+    if (widget.widget_type == .Input) {
+        c.pango_layout_set_width(layout, -1);
+    } else {
+        c.pango_layout_set_width(layout, (widget.width - 2 * widget.padding) * c.PANGO_SCALE);
+        c.pango_layout_set_wrap(layout, c.PANGO_WRAP_WORD_CHAR);
+    }
+
+    c.pango_layout_set_alignment(layout, widget.font_alignment.toPangoAlign());
+
+    var ink_rect: c.PangoRectangle = undefined;
+    var logical_rect: c.PangoRectangle = undefined;
+    c.pango_layout_get_pixel_extents(layout, &ink_rect, &logical_rect);
+
+    const scroll_amount: usize = widget.scroll_offset orelse 0;
+
+    const text_x: f64 = @as(f64, @floatFromInt(widget.x + widget.padding)) -
+        @as(f64, @floatFromInt(scroll_amount));
+
+    var text_y: f64 = @floatFromInt(widget.y + widget.padding);
+
+    const content_height = widget.height - 2 * widget.padding;
+    const text_height = logical_rect.height;
+
+    switch (widget.font_alignment) {
+        .LeftTop, .RightTop => {},
+        .CenterLeft, .Center, .CenterRight => {
+            text_y += @as(f64, @floatFromInt(content_height - text_height)) / 2.0;
+        },
+        .LeftBottom, .RightBottom => {
+            text_y += @floatFromInt(content_height - text_height);
+        },
+        else => {},
+    }
+
+    const alpha = @as(f64, @floatFromInt((widget.font_color >> 24) & 0xFF)) / 255.0;
+    const red = @as(f64, @floatFromInt((widget.font_color >> 16) & 0xFF)) / 255.0;
+    const green = @as(f64, @floatFromInt((widget.font_color >> 8) & 0xFF)) / 255.0;
+    const blue = @as(f64, @floatFromInt(widget.font_color & 0xFF)) / 255.0;
+
+    c.cairo_set_source_rgba(cr, red, green, blue, alpha);
+    c.cairo_move_to(cr, text_x, text_y);
+    c.pango_cairo_show_layout(cr, layout);
+
+    // ===== BLINKING CURSOR - ONLY FOR INPUT WIDGETS =====
+    const is_focused = if (app.focused_widget) |focused| focused == widget else false;
+
+    // ===== RENDER SELECTION HIGHLIGHT =====
+    if (widget.widget_type == .Input and is_focused) {
+        if (widget.selection_start != null and widget.selection_end != null) {
+            const start = @min(widget.selection_start.?, widget.selection_end.?);
+            const end = @max(widget.selection_start.?, widget.selection_end.?);
+
+            if (start != end) {
+                // Get the position of selection start and end
+                var start_rect: c.PangoRectangle = undefined;
+                var end_rect: c.PangoRectangle = undefined;
+                c.pango_layout_get_cursor_pos(layout, @intCast(start), &start_rect, null);
+                c.pango_layout_get_cursor_pos(layout, @intCast(end), &end_rect, null);
+
+                const sel_x = text_x + @as(f64, @floatFromInt(start_rect.x)) / @as(f64, @floatFromInt(c.PANGO_SCALE));
+                const sel_width = (@as(f64, @floatFromInt(end_rect.x - start_rect.x))) / @as(f64, @floatFromInt(c.PANGO_SCALE));
+                const sel_y = text_y;
+                const sel_height = @as(f64, @floatFromInt(logical_rect.height));
+
+                // Draw selection background (light blue)
+                c.cairo_set_source_rgba(cr, 0.3, 0.6, 1.0, 0.3);
+                c.cairo_rectangle(cr, sel_x, sel_y, sel_width, sel_height);
+                c.cairo_fill(cr);
+            }
+        }
+    }
+
+    // Only draw cursor if:
+    // 1. This is an Input widget
+    // 2. This widget is focused
+    // 3. Cursor is in visible state (blinking)
+    if (widget.widget_type == .Input and is_focused and app.cursor_visible) {
+        // Get cursor position at the cursor_position index
+        const cursor_index: i32 = @intCast(widget.cursor_position);
+        var cursor_rect: c.PangoRectangle = undefined;
+        c.pango_layout_get_cursor_pos(layout, cursor_index, &cursor_rect, null);
+
+        const cursor_x = text_x + @as(f64, @floatFromInt(cursor_rect.x)) / @as(f64, @floatFromInt(c.PANGO_SCALE));
+        const cursor_y = text_y + @as(f64, @floatFromInt(cursor_rect.y)) / @as(f64, @floatFromInt(c.PANGO_SCALE));
+        const cursor_height = @as(f64, @floatFromInt(cursor_rect.height)) / @as(f64, @floatFromInt(c.PANGO_SCALE));
+
+        // Draw cursor line
+        c.cairo_set_line_width(cr, 2.0);
+        c.cairo_set_source_rgba(cr, red, green, blue, alpha);
+        c.cairo_move_to(cr, cursor_x, cursor_y);
+        c.cairo_line_to(cr, cursor_x, cursor_y + cursor_height);
+        c.cairo_stroke(cr);
+    }
+}
+
+pub fn renderWidget(
+    widget: *Widget,
+    pixels: [*]u32,
+    pitch: usize,
+    buf_w: usize,
+    buf_h: usize,
+    app: *ginwaGTK, // Add app parameter
+) void {
+    if (widget.width <= 0 or widget.height <= 0) return;
+
+    const widget_x = widget.x;
+    const widget_y = widget.y;
+    const widget_width = widget.width;
+    const widget_height = widget.height;
+
+    if (widget.border_radius > 0) {
+        renderRoundedWidget(
+            pixels,
+            pitch,
+            buf_w,
+            buf_h,
+            widget_x,
+            widget_y,
+            widget_width,
+            widget_height,
+            widget.background_color,
+            widget.border_color,
+            widget.border_width orelse 0,
+            widget.border_radius,
+        );
+    } else {
+        fillRectClipped(
+            pixels,
+            pitch,
+            buf_w,
+            buf_h,
+            widget_x,
+            widget_y,
+            widget_width,
+            widget_height,
+            widget.background_color,
+        );
+
+        if (widget.border_color != null and widget.border_width != null) {
+            const border_w = widget.border_width.?;
+            if (border_w > 0) {
+                renderBorder(
+                    pixels,
+                    pitch,
+                    buf_w,
+                    buf_h,
+                    widget_x,
+                    widget_y,
+                    widget_width,
+                    widget_height,
+                    widget.border_color.?,
+                    border_w,
+                );
+            }
+        }
+    }
+
+    // Render text with app reference
+    const pitch_bytes = pitch * 4;
+    renderText(widget, pixels, pitch_bytes, buf_w, buf_h, app);
+
+    // Render children
+    if (widget.children) |children| {
+        for (children.items) |child| {
+            renderWidget(child, pixels, pitch, buf_w, buf_h, app);
+        }
+    }
+}
+
+fn renderRoundedWidget(
+    pixels: [*]u32,
+    pitch: usize,
+    buf_w: usize,
+    buf_h: usize,
+    x: i32,
+    y: i32,
+    widget_width: i32,
+    widget_height: i32,
+    bg_color: u32,
+    border_color: ?u32,
+    border_width: i32,
+    radius: i32,
+) void {
+    const stride = @as(i32, @intCast(pitch * 4));
+    const surface = c.cairo_image_surface_create_for_data(
+        @ptrCast(pixels),
+        c.CAIRO_FORMAT_ARGB32,
+        @as(i32, @intCast(buf_w)),
+        @as(i32, @intCast(buf_h)),
+        stride,
+    );
+    defer c.cairo_surface_destroy(surface);
+
+    const cr = c.cairo_create(surface);
+    defer c.cairo_destroy(cr);
+
+    const fx = @as(f64, @floatFromInt(x));
+    const fy = @as(f64, @floatFromInt(y));
+    const fw = @as(f64, @floatFromInt(widget_width));
+    const fh = @as(f64, @floatFromInt(widget_height));
+    const fr = @as(f64, @floatFromInt(radius));
+
+    // Create rounded rectangle path
+    c.cairo_new_sub_path(cr);
+    c.cairo_arc(cr, fx + fw - fr, fy + fr, fr, -std.math.pi / 2.0, 0.0);
+    c.cairo_arc(cr, fx + fw - fr, fy + fh - fr, fr, 0.0, std.math.pi / 2.0);
+    c.cairo_arc(cr, fx + fr, fy + fh - fr, fr, std.math.pi / 2.0, std.math.pi);
+    c.cairo_arc(cr, fx + fr, fy + fr, fr, std.math.pi, 3.0 * std.math.pi / 2.0);
+    c.cairo_close_path(cr);
+
+    // Fill background
+    const bg_r = @as(f64, @floatFromInt((bg_color >> 16) & 0xFF)) / 255.0;
+    const bg_g = @as(f64, @floatFromInt((bg_color >> 8) & 0xFF)) / 255.0;
+    const bg_b = @as(f64, @floatFromInt(bg_color & 0xFF)) / 255.0;
+    const bg_a = @as(f64, @floatFromInt((bg_color >> 24) & 0xFF)) / 255.0;
+    c.cairo_set_source_rgba(cr, bg_r, bg_g, bg_b, bg_a);
+    c.cairo_fill_preserve(cr);
+
+    // Draw border if specified
+    if (border_color != null and border_width > 0) {
+        const bcolor = border_color.?;
+        const b_r = @as(f64, @floatFromInt((bcolor >> 16) & 0xFF)) / 255.0;
+        const b_g = @as(f64, @floatFromInt((bcolor >> 8) & 0xFF)) / 255.0;
+        const b_b = @as(f64, @floatFromInt(bcolor & 0xFF)) / 255.0;
+        const b_a = @as(f64, @floatFromInt((bcolor >> 24) & 0xFF)) / 255.0;
+        c.cairo_set_source_rgba(cr, b_r, b_g, b_b, b_a);
+        c.cairo_set_line_width(cr, @floatFromInt(border_width));
+        c.cairo_stroke(cr);
+    } else {
+        c.cairo_new_path(cr); // Clear the path
+    }
+}
+
+fn renderBorder(
+    pixels: [*]u32,
+    pitch: usize,
+    buf_w: usize,
+    buf_h: usize,
+    x: i32,
+    y: i32,
+    widget_width: i32,
+    widget_height: i32,
+    color: u32,
+    border_width: i32,
+) void {
+    // Top border
+    fillRectClipped(pixels, pitch, buf_w, buf_h, x, y, widget_width, border_width, color);
+
+    // Bottom border
+    fillRectClipped(pixels, pitch, buf_w, buf_h, x, y + widget_height - border_width, widget_width, border_width, color);
+
+    // Left border
+    fillRectClipped(pixels, pitch, buf_w, buf_h, x, y, border_width, widget_height, color);
+
+    // Right border
+    fillRectClipped(pixels, pitch, buf_w, buf_h, x + widget_width - border_width, y, border_width, widget_height, color);
+}
+
+fn fillRectClipped(
+    pixels: [*]u32,
+    pitch: usize,
+    buf_w: usize,
+    buf_h: usize,
+    x: i32,
+    y: i32,
+    widget_width: i32,
+    widget_height: i32,
+    color: u32,
+) void {
+    const x0 = @max(x, 0);
+    const y0 = @max(y, 0);
+    const x1 = @min(x + widget_width, @as(i32, @intCast(buf_w)));
+    const y1 = @min(y + widget_height, @as(i32, @intCast(buf_h)));
+
+    if (x0 >= x1 or y0 >= y1) return;
+
+    var py: i32 = y0;
+    while (py < y1) : (py += 1) {
+        const row = @as(usize, @intCast(py)) * pitch;
+        var px: i32 = x0;
+        while (px < x1) : (px += 1) {
+            pixels[row + @as(usize, @intCast(px))] = color;
+        }
+    }
+}
+
+fn measureLayout(widget: *Widget) struct { width: i32, height: i32 } {
+    if (widget.children == null or widget.children.?.items.len == 0) {
+        return .{ .width = 2 * widget.padding, .height = 2 * widget.padding };
+    }
+
+    const children = widget.children.?.items;
+    var total_w: i32 = 2 * widget.padding;
+    var total_h: i32 = 2 * widget.padding;
+
+    if (widget.orientation == .Row) {
+        var max_h: i32 = 0;
+        for (children, 0..) |child, idx| {
+            var child_w = child.width;
+            var child_h = child.height;
+            if (child.widget_type == .Layout and (child_w == 0 or child_h == 0)) {
+                const measured = measureLayout(child);
+                if (child_w == 0) child_w = measured.width;
+                if (child_h == 0) child_h = measured.height;
+            }
+
+            total_w += child_w;
+            if (idx + 1 < children.len) {
+                total_w += widget.gap;
+            }
+            max_h = @max(max_h, child_h);
+        }
+        total_h += max_h;
+    } else if (widget.orientation == .Column) {
+        var max_w: i32 = 0;
+        for (children, 0..) |child, idx| {
+            var child_w = child.width;
+            var child_h = child.height;
+            if (child.widget_type == .Layout and (child_w == 0 or child_h == 0)) {
+                const measured = measureLayout(child);
+                if (child_w == 0) child_w = measured.width;
+                if (child_h == 0) child_h = measured.height;
+            }
+
+            total_h += child_h;
+            if (idx + 1 < children.len) {
+                total_h += widget.gap;
+            }
+            max_w = @max(max_w, child_w);
+        }
+        total_w += max_w;
+    }
+
+    return .{ .width = total_w, .height = total_h };
+}
+
+pub fn layoutWidget(widget: *Widget, avail_w: i32, avail_h: i32) void {
+    if (widget.widget_type == .Layout and widget.children != null) {
+        if (widget.width == 0 or widget.height == 0) {
+            const measured = measureLayout(widget);
+            if (widget.width == 0) widget.width = measured.width;
+            if (widget.height == 0) widget.height = measured.height;
+        }
+    }
+
+    // For root widget, always use available dimensions
+    var final_w = if (avail_w > 0) avail_w else widget.width;
+    var final_h = if (avail_h > 0) avail_h else widget.height;
+
+    // If this looks like a root widget (parent_guid is empty), force it to use available space
+    if (widget.parent_guid.len == 0 and avail_w > 0 and avail_h > 0) {
+        final_w = avail_w;
+        final_h = avail_h;
+    } else {
+        final_w = if (avail_w > 0) @min(widget.width, avail_w) else widget.width;
+        final_h = if (avail_h > 0) @min(widget.height, avail_h) else widget.height;
+    }
+
+    widget.width = final_w;
+    widget.height = final_h;
+
+    const inner_w = final_w - 2 * widget.padding;
+    const inner_h = final_h - 2 * widget.padding;
+
+    if (widget.children == null) return;
+    if (widget.children) |*children| {
+        const child_count = children.items.len;
+        if (child_count == 0) return;
+
+        if (widget.widget_type == .Layout) {
+            if (widget.orientation == .Row) {
+                var cur_x: i32 = widget.padding;
+                for (children.items, 0..) |child, idx| {
+                    const child_w = @min(child.width, inner_w);
+                    const child_h = @min(child.height, inner_h);
+
+                    child.x = widget.x + cur_x;
+                    child.y = widget.y + widget.padding;
+
+                    layoutWidget(child, child_w, child_h);
+
+                    cur_x += child.width;
+                    if (idx + 1 < child_count) {
+                        cur_x += widget.gap;
+                    }
+                }
+            } else if (widget.orientation == .Column) {
+                var cur_y: i32 = widget.padding;
+                for (children.items, 0..) |child, idx| {
+                    const child_w = @min(child.width, inner_w);
+                    const child_h = @min(child.height, inner_h);
+
+                    child.x = widget.x + widget.padding;
+                    child.y = widget.y + cur_y;
+
+                    layoutWidget(child, child_w, child_h);
+
+                    cur_y += child.height;
+                    if (idx + 1 < child_count) {
+                        cur_y += widget.gap;
+                    }
+                }
+            }
+        } else {
+            for (children.items) |child| {
+                child.x = widget.x + widget.padding;
+                child.y = widget.y + widget.padding;
+                layoutWidget(child, child.width, child.height);
+            }
+        }
+    }
+}
+
+pub fn create_shm_buffer(self: *ginwaGTK) ?*c.wl_buffer {
+    // std.debug.print("create_shm_buffer\n", .{});
+    const win_width: usize = @intCast(self.win_width);
+    const win_height: usize = @intCast(self.win_height);
+
+    // std.debug.print("win_width: {d}, win_height: {d}\n", .{ win_width, win_height });
+
+    const stride: usize = win_width * 4;
+    const size: usize = stride * win_height;
+    const buf_w: usize = win_width;
+    const buf_h: usize = win_height;
+    const stride_u32: usize = @intCast(win_width);
+
+    const fd = c.memfd_create("wl-buffer", 0);
+    _ = c.ftruncate(fd, @intCast(size));
+
+    const shm_data_void = c.mmap(null, size, c.PROT_READ | c.PROT_WRITE, c.MAP_SHARED, fd, 0);
+    self.shm_data = @ptrCast(shm_data_void);
+
+    if (self.shm == null) {
+        std.log.err("No shm", .{});
+    }
+
+    if (fd < 0) {
+        std.log.err("Failed to create shm", .{});
+    }
+
+    const pool = c.wl_shm_create_pool(self.shm, fd, @intCast(size));
+    const buffer = c.wl_shm_pool_create_buffer(
+        pool,
+        0,
+        @intCast(self.win_width),
+        @intCast(self.win_height),
+        @intCast(stride),
+        c.WL_SHM_FORMAT_XRGB8888,
+    );
+
+    const pixels: [*]u32 = @ptrCast(@alignCast(self.shm_data));
+    for (0..@intCast(self.win_width * self.win_height)) |i| {
+        pixels[i] = 0xFF000000;
+    }
+
+    // std.debug.print("before layouting self.window: {s}\n", .{""});
+    // debugger.printWidget(&self.window);
+
+    // This will now properly maintain window size
+    layoutWidget(&self.window, self.win_width, self.win_height);
+
+    // std.debug.print("after layouting self.window: {s}\n", .{""});
+    // debugger.printWidget(&self.window);
+
+    renderWidget(&self.window, pixels, stride_u32, buf_w, buf_h, self);
+
+    defer _ = c.wl_shm_pool_destroy(pool);
+    defer _ = c.close(fd);
+    defer _ = c.munmap(shm_data_void, size);
+
+    return buffer;
+}
+
+pub fn redraw(app: *ginwaGTK) void {
+    const buffer = create_shm_buffer(app);
+    defer c.wl_buffer_destroy(buffer);
+    c.wl_surface_attach(app.surface, buffer, 0, 0);
+    c.wl_surface_damage(app.surface, 0, 0, app.win_width, app.win_height);
+    c.wl_surface_commit(app.surface);
+}
+
+pub fn renderEventLoop(app: *ginwaGTK) void {
+    redraw(app);
+    c.wl_surface_commit(app.surface);
+
+    app.running = true;
+    app.last_cursor_blink = utils.getNanoTime();
+
+    // Event loop
+    while (app.running) {
+        // std.debug.print("Event loop time {d}\n", .{utils.getNanoTime()});
+        // First, dispatch any pending events
+        while (c.wl_display_prepare_read(app.display) != 0) {
+            _ = c.wl_display_dispatch_pending(app.display);
+        }
+
+        _ = c.wl_display_flush(app.display);
+
+        const current_time = utils.getNanoTime();
+        const time_since_blink = current_time - app.last_cursor_blink;
+
+        // Check if cursor needs to blink
+        var should_blink = false;
+        if (app.focused_widget) |widget| {
+            if (widget.widget_type == .Input) {
+                if (time_since_blink >= app.cursor_blink_interval) {
+                    should_blink = true;
+                }
+            }
+        }
+
+        if (should_blink and app.key_repeat_active == false) {
+            // std.debug.print("Blinking cursor\n", .{});
+            // Cancel the read since we're going to redraw
+            c.wl_display_cancel_read(app.display);
+
+            app.cursor_visible = !app.cursor_visible;
+            app.last_cursor_blink = current_time;
+
+            // Redraw for cursor blink
+            redraw(app);
+
+            if (app.focused_widget) |widget| {
+                c.wl_surface_damage(app.surface, widget.x, widget.y, widget.width, widget.height);
+            }
+            c.wl_surface_commit(app.surface);
+        } else {
+            if (app.key_repeat_active and app.keyboard_rate > 0) {
+                const now = utils.getNanoTime();
+                if (now >= app.next_key_repeat_time) {
+                    if (app.pressed_key) |k| {
+                        if (app.focused_widget) |fw| {
+                            if (fw.widget_type == .Input) {
+                                wk.handleInputKey(app, fw, k, app.shift_pressed, app.ctrl_pressed, app.allocator());
+
+                                redraw(app);
+
+                                // Schedule next repeat
+                                const interval_ms = @divFloor(1000, app.keyboard_rate);
+                                app.next_key_repeat_time = now + (interval_ms * 1_000_000);
+                            }
+                        }
+                    }
+                }
+            }
+
+            const fd = c.wl_display_get_fd(app.display);
+            var poll_fd = std.os.linux.pollfd{
+                .fd = fd,
+                .events = std.os.linux.POLL.IN,
+                .revents = 0,
+            };
+
+            // Calculate timeout until next blink
+            var timeout_ms: i32 = 2; // Default 16ms
+            if (app.focused_widget) |widget| {
+                if (widget.widget_type == .Input) {
+                    const remaining = app.cursor_blink_interval - time_since_blink;
+                    timeout_ms = @intCast(@divFloor(remaining, 1_000_000));
+                    if (timeout_ms < 1) timeout_ms = 1;
+                }
+            }
+
+            const poll_result = std.os.linux.poll(@ptrCast(&poll_fd), 1, timeout_ms);
+
+            if (poll_result > 0) {
+                // Events are ready, read them
+                _ = c.wl_display_read_events(app.display);
+                _ = c.wl_display_dispatch_pending(app.display);
+            } else {
+                // Timeout or error, cancel the read
+                c.wl_display_cancel_read(app.display);
+            }
+        }
+    }
+}
+
+fn ensureCursorVisible(self: *Widget, widget_width: i32) void {
+    const text = if (self.input_text.len > 0) self.input_text else self.text;
+    if (text.len == 0) {
+        self.scroll_offset = 0; // Reset scroll when empty
+        return;
+    }
+
+    // Create a temporary Cairo surface for text measurement
+    const temp_width = 1;
+    const temp_height = 1;
+    const temp_stride = temp_width * 4;
+
+    var temp_data: [4]u8 = undefined;
+    const surface = c.cairo_image_surface_create_for_data(
+        @ptrCast(&temp_data),
+        c.CAIRO_FORMAT_ARGB32,
+        temp_width,
+        temp_height,
+        temp_stride,
+    );
+    defer c.cairo_surface_destroy(surface);
+
+    const cr = c.cairo_create(surface);
+    defer c.cairo_destroy(cr);
+
+    const layout = c.pango_cairo_create_layout(cr);
+    defer c.g_object_unref(layout);
+
+    c.pango_layout_set_text(layout, text.ptr, @as(i32, @intCast(text.len)));
+
+    // Set font
+    var font_buf: [128]u8 = undefined;
+    const font_str_z = if (self.font_size > 0)
+        std.fmt.bufPrintZ(&font_buf, "{s} {d}", .{ self.font_type, self.font_size }) catch "Sans 16"
+    else
+        std.fmt.bufPrintZ(&font_buf, "{s}", .{self.font_type}) catch "Sans";
+
+    const font_desc = c.pango_font_description_from_string(font_str_z);
+    defer c.pango_font_description_free(font_desc);
+
+    c.pango_font_description_set_weight(font_desc, self.font_weight.toPangoWeight());
+    c.pango_layout_set_font_description(layout, font_desc);
+
+    // Get cursor position in pixels (relative to text start)
+    var cursor_x: i32 = 0;
+    var cursor_y: i32 = 0;
+    _ = c.pango_layout_get_cursor_pos(layout, @as(i32, @intCast(self.cursor_position)), &cursor_x, &cursor_y);
+
+    const cursor_pixel_x = @as(usize, @intCast(@divFloor(cursor_x, c.PANGO_SCALE)));
+
+    // Get total text width
+    const text_width = @as(usize, @intCast(c.pango_layout_get_pixel_width(layout)));
+
+    // Calculate visible area (accounting for padding)
+    const padding = self.padding;
+    const available_width = widget_width - (padding * 2);
+
+    // FIX: If total text is longer than available space, auto-scroll to show the end
+    if (text_width > available_width) {
+        // Scroll to show the end of the text (like HTML input)
+        self.scroll_offset = text_width - available_width;
+    } else {
+        // Text fits - no scroll needed
+        self.scroll_offset = 0;
+    }
+
+    // Also ensure cursor is visible (keep existing logic)
+    if (cursor_pixel_x < self.scroll_offset) {
+        self.scroll_offset = if (cursor_pixel_x < 50) 0 else cursor_pixel_x - 50;
+    } else if (cursor_pixel_x > self.scroll_offset + available_width) {
+        self.scroll_offset = cursor_pixel_x - available_width + 50;
+    }
+
+    // Don't scroll past text end
+    if (self.scroll_offset > text_width) {
+        self.scroll_offset = text_width;
+    }
+}

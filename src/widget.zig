@@ -1,77 +1,345 @@
 const std = @import("std");
 
-const c = @cImport({
-    @cInclude("cairo.h");
-    @cInclude("pango/pango.h");
-    @cInclude("pango/pangocairo.h");
-});
+pub const c = @import("c.zig").c;
+const wr = @import("widget_render.zig");
+const wp = @import("widget_pointer.zig");
+const wk = @import("widget_keyboard.zig");
 
 const random = @import("random.zig");
+const debugger = @import("debugger.zig");
+const utils = @import("utils.zig");
 
-pub fn renderText(
-    widget: *Widget,
-    pixels: [*]u32,
-    pitch_bytes: usize,
-    buf_w: usize,
-    buf_h: usize,
-) void {
-    if (widget.text.len == 0) return;
+pub const ginwaGTK = struct {
+    // wayland
+    display: ?*c.wl_display = null,
+    registry: ?*c.wl_registry = null,
+    compositor: ?*c.wl_compositor = null,
+    shm: ?*c.wl_shm = null,
+    xdg_wm_base: ?*c.xdg_wm_base = null,
+    surface: ?*c.wl_surface = null,
+    xdg_surface: ?*c.xdg_surface = null,
+    xdg_toplevel: ?*c.xdg_toplevel = null,
+    running: bool = false,
+    wl_pointer: ?*c.wl_pointer = null,
+    wl_seat: ?*c.wl_seat = null,
+    wl_keyboard: ?*c.wl_keyboard = null,
 
-    const stride = @as(i32, @intCast(pitch_bytes));
-    const surface = c.cairo_image_surface_create_for_data(
-        @ptrCast(pixels),
-        c.CAIRO_FORMAT_ARGB32,
-        @as(i32, @intCast(buf_w)),
-        @as(i32, @intCast(buf_h)),
-        stride,
-    );
-    defer c.cairo_surface_destroy(surface);
+    old_buffer: ?*c.wl_buffer = null,
+    current_buffer: ?*c.wl_buffer = null,
+    shm_data: [*]u8 = undefined,
 
-    const cr = c.cairo_create(surface);
-    defer c.cairo_destroy(cr);
+    // window properties
+    win_title: [*c]const u8,
+    win_width: i32 = 800,
+    win_height: i32 = 600,
+    layout_initialized: bool = false,
 
-    const layout = c.pango_cairo_create_layout(cr);
-    defer c.g_object_unref(layout);
 
-    c.pango_layout_set_text(layout, widget.text.ptr, @as(i32, @intCast(widget.text.len)));
+    // mouse
+    pointer_x: f64 = 0,
+    pointer_y: f64 = 0,
+    mouse_dragging: bool = false,
+    mouse_drag_start_widget: ?*Widget = null,
+    mouse_drag_start_x: f64 = 0,
+    mouse_drag_start_y: f64 = 0,
+    mouse_last_click_time: i64 = 0,
+    mouse_click_count: i32 = 0,
+    mouse_last_click_widget: ?*Widget = null,
+    mouse_quick_clink_interval: i64 = 500_000_000, // 500ms in nanoseconds
 
-    var font_buf: [128]u8 = undefined;
+    // memory management
+    gpa: std.heap.GeneralPurposeAllocator(.{}) = .{},
+    memory: ?std.mem.Allocator = null,
 
-    const font_str_z = if (widget.font_size > 0)
-        std.fmt.bufPrintZ(&font_buf, "{s} {d}", .{
-            widget.font_type,
-            widget.font_size,
-        }) catch "Sans 16"
-    else
-        std.fmt.bufPrintZ(&font_buf, "{s}", .{widget.font_type}) catch "Sans";
+    allocatorbtn: std.mem.Allocator = undefined,
 
-    const font_desc = c.pango_font_description_from_string(font_str_z);
+    // ui component
+    window: Widget = undefined,
+    focused_widget: ?*Widget = null,
 
-    defer c.pango_font_description_free(font_desc);
-    c.pango_layout_set_font_description(layout, font_desc);
+    // keyboard
+    shift_pressed: bool = false,
+    ctrl_pressed: bool = false,
+    alt_pressed: bool = false,
+    pressed_key: ?u32 = null,
+    keyboard_rate: i32 = 0.0,
+    keyboard_delay: i32 = 0.0,
+    next_key_repeat_time: i64 = 0,
 
-    c.pango_layout_set_width(layout, widget.width * c.PANGO_SCALE);
-    c.pango_layout_set_alignment(layout, c.PANGO_ALIGN_CENTER);
-    c.pango_layout_set_wrap(layout, c.PANGO_WRAP_WORD_CHAR);
+    key_repeat_active: bool = false,
+    key_repeat_thread: ?std.Thread = null,
+    key_repeat_mutex: std.Thread.Mutex = .{},
+    // cursor blinking
+    cursor_visible: bool = true,
+    last_cursor_blink: i64 = 0,
+    cursor_blink_interval: i64 = 500_000_000, // 500ms in nanoseconds
 
-    c.cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 1.0);
+    pub const xdg_surface_listener = c.xdg_surface_listener{
+        .configure = xdgSurfaceConfigure,
+    };
 
-    c.cairo_move_to(cr, @floatFromInt(widget.x + widget.padding), @floatFromInt(widget.y + widget.padding));
+    pub const xdg_wm_base_listener = c.xdg_wm_base_listener{
+        .ping = xdgWmBasePing,
+    };
 
-    c.pango_cairo_show_layout(cr, layout);
+    fn registryHandleGlobal(user_data: ?*anyopaque, registry: ?*c.struct_wl_registry, name: u32, interface: [*c]const u8, version: u32) callconv(.c) void {
+        const app: *ginwaGTK = @ptrCast(@alignCast(user_data));
+        std.debug.print("Found global {} of interface {s} version {}\n", .{ name, interface, version });
+
+        const iface = std.mem.span(interface);
+        if (std.mem.eql(u8, iface, "wl_compositor")) {
+            app.compositor = @ptrCast(c.wl_registry_bind(
+                registry,
+                name,
+                &c.wl_compositor_interface,
+                version,
+            ));
+            app.surface = c.wl_compositor_create_surface(app.compositor);
+        }
+
+        if (std.mem.eql(u8, iface, "xdg_wm_base")) {
+            app.xdg_wm_base = @ptrCast(c.wl_registry_bind(
+                registry,
+                name,
+                &c.xdg_wm_base_interface,
+                4,
+            ));
+            app.xdg_surface = c.xdg_wm_base_get_xdg_surface(app.xdg_wm_base, app.surface);
+            _ = c.xdg_surface_add_listener(app.xdg_surface, &xdg_surface_listener, app);
+
+            app.xdg_toplevel = c.xdg_surface_get_toplevel(app.xdg_surface);
+            _ = c.xdg_toplevel_add_listener(app.xdg_toplevel, &xdg_toplevel_listener, app);
+            _ = c.xdg_wm_base_add_listener(app.xdg_wm_base, &xdg_wm_base_listener, app);
+        }
+
+        if (std.mem.eql(u8, iface, "wl_shm")) {
+            app.shm = @ptrCast(c.wl_registry_bind(registry, name, &c.wl_shm_interface, 1));
+        }
+
+        if (std.mem.eql(u8, iface, "wl_seat")) {
+            app.wl_seat = @ptrCast(c.wl_registry_bind(registry, name, &c.wl_seat_interface, version));
+
+            _ = c.wl_seat_add_listener(app.wl_seat, &seat_listener, app);
+        }
+    }
+
+    fn registryHandleGlobalRemove(user_data: ?*anyopaque, registry: ?*c.struct_wl_registry, name: u32) callconv(.c) void {
+        _ = user_data;
+        _ = registry;
+        std.debug.print("Removed global {}\n", .{name});
+    }
+
+    pub fn init(self: *ginwaGTK) *ginwaGTK {
+        self.display = c.wl_display_connect(null);
+
+        const registry = c.wl_display_get_registry(self.display);
+
+        const registry_listener = c.wl_registry_listener{
+            .global = registryHandleGlobal,
+            .global_remove = registryHandleGlobalRemove,
+        };
+        _ = c.wl_registry_add_listener(registry, &registry_listener, self);
+        _ = c.wl_display_roundtrip(self.display);
+
+        // c.xdg_toplevel_sst_title(self.xdg_toplevel, self.win_title);
+        c.xdg_toplevel_set_title(self.xdg_toplevel, self.win_title);
+
+        return self;
+    }
+
+    pub fn drawWindow(self: *ginwaGTK, allo: std.mem.Allocator) *Widget {
+        var tk = allo.create(Widget) catch unreachable;
+        tk.allocator = allo;
+        tk.guid = "root";
+        tk.children = null;
+        tk.name = "parent_widget";
+        tk.orientation = .Column;
+        tk.widget_type = .Layout;
+        tk.padding = 8;
+        tk.gap = 8;
+
+        self.window = tk.*;
+
+        return tk;
+    }
+
+    pub fn event_loop(app: *ginwaGTK) !void {
+        return wr.renderEventLoop(app);
+    }
+
+    pub fn redraw(self: *ginwaGTK, window_width: i32, window_height: i32) void {
+        self.win_width = window_width;
+        self.win_height = window_height;
+        if (self.running == false) {
+            return;
+        }
+        if (window_width == 0 or window_height == 0) {
+            return;
+        }
+        std.debug.print("width: {d}, height: {d}\n", .{ window_width, window_height });
+    }
+
+    pub fn free(self: *ginwaGTK) void {
+        std.debug.print("free\n", .{});
+
+        // Clean up window children first
+        if (self.window.children) |*children| {
+            for (children.items) |child| {
+                child.deinit();
+                self.allocator().destroy(child);
+            }
+            children.deinit(self.allocator());
+        }
+
+        _ = c.wl_display_disconnect(self.display);
+        _ = self.gpa.deinit();
+    }
+
+    pub fn allocator(self: *ginwaGTK) std.mem.Allocator {
+        return self.memory orelse self.gpa.allocator();
+    }
+};
+
+// Tambahkan fungsi ini di widget.zig
+pub fn findWidgetAt(widget: *Widget, x: f64, y: f64) ?*Widget {
+    const fx = @as(f64, @floatFromInt(widget.x));
+    const fy = @as(f64, @floatFromInt(widget.y));
+    const fw = @as(f64, @floatFromInt(widget.width));
+    const fh = @as(f64, @floatFromInt(widget.height));
+
+    // Cek apakah point berada di dalam widget ini
+    const is_inside = x >= fx and x < fx + fw and y >= fy and y < fy + fh;
+
+    if (!is_inside) return null;
+
+    // Cek children dulu (dari depan ke belakang, karena yang di depan menutupi yang di belakang)
+    if (widget.children) |children| {
+        var i = children.items.len;
+        while (i > 0) {
+            i -= 1;
+            if (findWidgetAt(children.items[i], x, y)) |found| {
+                return found;
+            }
+        }
+    }
+
+    // Jika tidak ada children yang match, return widget ini
+    return widget;
+}
+fn xdgSurfaceConfigure(
+    data: ?*anyopaque,
+    xdg_surface: ?*c.xdg_surface,
+    serial: u32,
+) callconv(.c) void {
+    c.xdg_surface_ack_configure(xdg_surface, serial);
+    _ = data;
 }
 
+fn xdgWmBasePing(
+    data: ?*anyopaque,
+    xdg_wm_base: ?*c.xdg_wm_base,
+    serial: u32,
+) callconv(.c) void {
+    _ = data;
+    c.xdg_wm_base_pong(xdg_wm_base, serial);
+}
+
+fn xdgToplevelConfigure(
+    data: ?*anyopaque,
+    xdg_toplevel: ?*c.xdg_toplevel,
+    width: i32,
+    height: i32,
+    states: ?*c.wl_array,
+) callconv(.c) void {
+    _ = xdg_toplevel;
+    _ = states;
+
+    const app: *ginwaGTK = @ptrCast(@alignCast(data));
+    ginwaGTK.redraw(app, width, height);
+}
+
+fn xdgToplevelClose(
+    data: ?*anyopaque,
+    xdg_toplevel: ?*c.xdg_toplevel,
+) callconv(.c) void {
+    _ = xdg_toplevel;
+    const app: *ginwaGTK = @ptrCast(@alignCast(data));
+    app.running = false;
+    std.debug.print("Window closed\n", .{});
+}
+
+pub const xdg_toplevel_listener = c.xdg_toplevel_listener{
+    .configure = xdgToplevelConfigure,
+    .close = xdgToplevelClose,
+};
+
+// input system
+
+// ?*anyopaque, ?*struct_wl_seat, u32) callconv(.c) void = @import("std").mem.zeroes(?*const fn (?*anyopaque, ?*struct_wl_seat, u32) callconv(.c) void
+fn seat_capabilities(
+    data: ?*anyopaque,
+    seat: ?*c.struct_wl_seat,
+    capabilities: u32,
+) callconv(.c) void {
+    _ = seat;
+    const app: *ginwaGTK = @ptrCast(@alignCast(data.?));
+
+    std.debug.print("window witdh: {}\n", .{app.win_width});
+
+    // Existing pointer code...
+    if (capabilities & c.WL_SEAT_CAPABILITY_POINTER != 0) {
+        if (app.wl_pointer == null) {
+            app.wl_pointer = c.wl_seat_get_pointer(app.wl_seat);
+            _ = c.wl_pointer_add_listener(app.wl_pointer, &wp.pointer_listener, app);
+            std.debug.print("Mouse/trackpad pointer ready!\n", .{});
+        }
+    }
+
+    // Add keyboard support
+    if (capabilities & c.WL_SEAT_CAPABILITY_KEYBOARD != 0) {
+        if (app.wl_keyboard == null) {
+            app.wl_keyboard = c.wl_seat_get_keyboard(app.wl_seat);
+            _ = c.wl_keyboard_add_listener(app.wl_keyboard, &wk.keyboard_listener, app);
+            std.debug.print("Keyboard ready!\n", .{});
+        }
+    }
+}
+
+fn seat_name(data: ?*anyopaque, seat: ?*c.wl_seat, name: [*c]const u8) callconv(.c) void {
+    _ = seat;
+    _ = data;
+    const seat_name_str = std.mem.span(name);
+    std.debug.print("Seat name: {s}\n", .{seat_name_str});
+}
+
+pub const seat_listener = c.struct_wl_seat_listener{
+    .capabilities = seat_capabilities,
+    .name = seat_name,
+};
+
+/// rendering system
 pub const Orientation = enum {
     Row,
     Column,
 };
 
-pub const WidgetType = enum {
-    Button,
-    Layout,
+pub const WidgetType = enum { Button, Layout, Input };
+
+pub const FontWeight = enum {
+    Normal,
+    Bold,
+    Light,
+
+    pub fn toPangoWeight(self: FontWeight) c_uint {
+        return switch (self) {
+            .Light => c.PANGO_WEIGHT_LIGHT,
+            .Normal => c.PANGO_WEIGHT_NORMAL,
+            .Bold => c.PANGO_WEIGHT_BOLD,
+        };
+    }
 };
 
-pub const FontAllignment = enum {
+pub const FontAlignment = enum {
     Left,
     LeftTop,
     LeftBottom,
@@ -81,6 +349,14 @@ pub const FontAllignment = enum {
     Right,
     RightTop,
     RightBottom,
+
+    pub fn toPangoAlign(self: FontAlignment) c_uint {
+        return switch (self) {
+            .Left, .LeftTop, .LeftBottom, .CenterLeft => c.PANGO_ALIGN_LEFT,
+            .Center => c.PANGO_ALIGN_CENTER,
+            .Right, .RightTop, .RightBottom, .CenterRight => c.PANGO_ALIGN_RIGHT,
+        };
+    }
 };
 
 pub const Widget = struct {
@@ -99,10 +375,13 @@ pub const Widget = struct {
     width: i32 = 0,
     height: i32 = 0,
     padding: i32 = 0,
+    input_text: []const u8 = "",
     text: []const u8 = "",
-    font_size: i32 = 16,
+    font_size: i32 = 11,
     font_type: [*:0]const u8 = "Arial",
-    font_allignment: FontAllignment = .Left,
+    font_alignment: FontAlignment = .CenterLeft,
+    font_color: u32 = 0xFFFFFFFF,
+    font_weight: FontWeight = .Normal, // Added font weight
     background_color: u32 = 0xFF333333,
     border_radius: i32 = 0,
     border_color: ?u32 = null,
@@ -113,27 +392,28 @@ pub const Widget = struct {
 
     allocator: std.mem.Allocator,
 
-    pub fn onClick(self: *Widget, comptime callback: anytype, data: ?*anyopaque) *Widget {
-        const S = struct {
-            fn wrapper(w: *Widget, d: ?*anyopaque) void {
-                _ = w;
-                @call(.auto, callback, .{d});
-            }
-        };
-        self.on_click = S.wrapper;
-        self.click_data = data;
-        return self;
+    cursor_position: usize = 0,
+    selection_start: ?usize = null,
+    selection_end: ?usize = null,
+    selection_anchor: ?usize = null,
+    scroll_offset: ?usize = null,
+    keyboard_last_state: u32 = 0, // enggak kepake kayaknya
+    keyboard_last_time: i64 = 0, // enggak kepake kayakany
+
+    pub fn triggerClick(self: *Widget) void {
+        if (self.on_click) |callback| {
+            callback(self, self.click_data);
+        }
     }
 
-    pub fn add_children(self: *Widget, allocator: std.mem.Allocator, child: *Widget) !void {
+    pub fn add_children(self: *Widget, child: *Widget) !void {
         if (self.children == null) {
-            std.debug.print("self.children == null\n", .{});
+            std.debug.print("create children list\n", .{});
             self.children = .empty;
         }
 
-        std.debug.print("child: {any}\n", .{child});
         child.parent_guid = self.guid;
-        try self.children.?.append(allocator, child);
+        try self.children.?.append(self.allocator, child);
     }
 
     pub fn deinit(self: *Widget) void {
@@ -142,323 +422,14 @@ pub const Widget = struct {
                 child.deinit();
                 self.allocator.destroy(child);
             }
-            list.deinit();
+            list.deinit(self.allocator);
         }
     }
 };
 
-pub fn layoutWidget(widget: *Widget, avail_w: i32, avail_h: i32) void {
-    if (widget.widget_type == .Layout and widget.children != null) {
-        if (widget.width == 0 or widget.height == 0) {
-            const measured = measureLayout(widget);
-            if (widget.width == 0) widget.width = measured.width;
-            if (widget.height == 0) widget.height = measured.height;
-        }
-    }
-
-    const final_w = if (avail_w > 0) @min(widget.width, avail_w) else widget.width;
-    const final_h = if (avail_h > 0) @min(widget.height, avail_h) else widget.height;
-
-    widget.width = final_w;
-    widget.height = final_h;
-
-    const inner_w = final_w - 2 * widget.padding;
-    const inner_h = final_h - 2 * widget.padding;
-
-    if (widget.children) |*children| {
-        const child_count = children.items.len;
-        if (child_count == 0) return;
-
-        if (widget.widget_type == .Layout) {
-            if (widget.orientation == .Row) {
-                var cur_x: i32 = widget.padding;
-                for (children.items, 0..) |child, idx| {
-                    const child_w = @min(child.width, inner_w);
-                    const child_h = @min(child.height, inner_h);
-
-                    child.x = widget.x + cur_x;
-                    child.y = widget.y + widget.padding;
-
-                    layoutWidget(child, child_w, child_h);
-
-                    cur_x += child.width;
-                    if (idx + 1 < child_count) {
-                        cur_x += widget.gap;
-                    }
-                }
-            } else if (widget.orientation == .Column) {
-                var cur_y: i32 = widget.padding;
-                for (children.items, 0..) |child, idx| {
-                    const child_w = @min(child.width, inner_w);
-                    const child_h = @min(child.height, inner_h);
-
-                    child.x = widget.x + widget.padding;
-                    child.y = widget.y + cur_y;
-
-                    layoutWidget(child, child_w, child_h);
-
-                    cur_y += child.height;
-                    if (idx + 1 < child_count) {
-                        cur_y += widget.gap;
-                    }
-                }
-            }
-        } else {
-            for (children.items) |child| {
-                child.x = widget.x + widget.padding;
-                child.y = widget.y + widget.padding;
-                layoutWidget(child, child.width, child.height);
-            }
-        }
-    }
-}
-
-fn measureLayout(widget: *Widget) struct { width: i32, height: i32 } {
-    if (widget.children == null or widget.children.?.items.len == 0) {
-        return .{ .width = 2 * widget.padding, .height = 2 * widget.padding };
-    }
-
-    const children = widget.children.?.items;
-    var total_w: i32 = 2 * widget.padding;
-    var total_h: i32 = 2 * widget.padding;
-
-    if (widget.orientation == .Row) {
-        var max_h: i32 = 0;
-        for (children, 0..) |child, idx| {
-            var child_w = child.width;
-            var child_h = child.height;
-            if (child.widget_type == .Layout and (child_w == 0 or child_h == 0)) {
-                const measured = measureLayout(child);
-                if (child_w == 0) child_w = measured.width;
-                if (child_h == 0) child_h = measured.height;
-            }
-
-            total_w += child_w;
-            if (idx + 1 < children.len) {
-                total_w += widget.gap;
-            }
-            max_h = @max(max_h, child_h);
-        }
-        total_h += max_h;
-    } else if (widget.orientation == .Column) {
-        var max_w: i32 = 0;
-        for (children, 0..) |child, idx| {
-            var child_w = child.width;
-            var child_h = child.height;
-            if (child.widget_type == .Layout and (child_w == 0 or child_h == 0)) {
-                const measured = measureLayout(child);
-                if (child_w == 0) child_w = measured.width;
-                if (child_h == 0) child_h = measured.height;
-            }
-
-            total_h += child_h;
-            if (idx + 1 < children.len) {
-                total_h += widget.gap;
-            }
-            max_w = @max(max_w, child_w);
-        }
-        total_w += max_w;
-    }
-
-    return .{ .width = total_w, .height = total_h };
-}
-
-pub fn renderWidget(
-    widget: *Widget,
-    pixels: [*]u32,
-    pitch: usize,
-    buf_w: usize,
-    buf_h: usize,
-) void {
-    if (widget.width <= 0 or widget.height <= 0) return;
-
-    const x = widget.x;
-    const y = widget.y;
-    const w = widget.width;
-    const h = widget.height;
-
-    // Render background and border with Cairo for rounded corners
-    if (widget.border_radius > 0) {
-        renderRoundedWidget(
-            pixels,
-            pitch,
-            buf_w,
-            buf_h,
-            x,
-            y,
-            w,
-            h,
-            widget.background_color,
-            widget.border_color,
-            widget.border_width orelse 0,
-            widget.border_radius,
-        );
-    } else {
-        // Sharp corners - use simple rect fill
-        fillRectClipped(
-            pixels,
-            pitch,
-            buf_w,
-            buf_h,
-            x,
-            y,
-            w,
-            h,
-            widget.background_color,
-        );
-
-        // Render border if enabled
-        if (widget.border_color != null and widget.border_width != null) {
-            const border_w = widget.border_width.?;
-            if (border_w > 0) {
-                renderBorder(
-                    pixels,
-                    pitch,
-                    buf_w,
-                    buf_h,
-                    x,
-                    y,
-                    w,
-                    h,
-                    widget.border_color.?,
-                    border_w,
-                );
-            }
-        }
-    }
-
-    // Render text
-    const pitch_bytes = pitch * 4;
-    renderText(widget, pixels, pitch_bytes, buf_w, buf_h);
-
-    // Render children
-    if (widget.children) |children| {
-        for (children.items) |child| {
-            renderWidget(child, pixels, pitch, buf_w, buf_h);
-        }
-    }
-}
-
-fn renderRoundedWidget(
-    pixels: [*]u32,
-    pitch: usize,
-    buf_w: usize,
-    buf_h: usize,
-    x: i32,
-    y: i32,
-    w: i32,
-    h: i32,
-    bg_color: u32,
-    border_color: ?u32,
-    border_width: i32,
-    radius: i32,
-) void {
-    const stride = @as(i32, @intCast(pitch * 4));
-    const surface = c.cairo_image_surface_create_for_data(
-        @ptrCast(pixels),
-        c.CAIRO_FORMAT_ARGB32,
-        @as(i32, @intCast(buf_w)),
-        @as(i32, @intCast(buf_h)),
-        stride,
-    );
-    defer c.cairo_surface_destroy(surface);
-
-    const cr = c.cairo_create(surface);
-    defer c.cairo_destroy(cr);
-
-    const fx = @as(f64, @floatFromInt(x));
-    const fy = @as(f64, @floatFromInt(y));
-    const fw = @as(f64, @floatFromInt(w));
-    const fh = @as(f64, @floatFromInt(h));
-    const fr = @as(f64, @floatFromInt(radius));
-
-    // Create rounded rectangle path
-    c.cairo_new_sub_path(cr);
-    c.cairo_arc(cr, fx + fw - fr, fy + fr, fr, -std.math.pi / 2.0, 0.0);
-    c.cairo_arc(cr, fx + fw - fr, fy + fh - fr, fr, 0.0, std.math.pi / 2.0);
-    c.cairo_arc(cr, fx + fr, fy + fh - fr, fr, std.math.pi / 2.0, std.math.pi);
-    c.cairo_arc(cr, fx + fr, fy + fr, fr, std.math.pi, 3.0 * std.math.pi / 2.0);
-    c.cairo_close_path(cr);
-
-    // Fill background
-    const bg_r = @as(f64, @floatFromInt((bg_color >> 16) & 0xFF)) / 255.0;
-    const bg_g = @as(f64, @floatFromInt((bg_color >> 8) & 0xFF)) / 255.0;
-    const bg_b = @as(f64, @floatFromInt(bg_color & 0xFF)) / 255.0;
-    const bg_a = @as(f64, @floatFromInt((bg_color >> 24) & 0xFF)) / 255.0;
-    c.cairo_set_source_rgba(cr, bg_r, bg_g, bg_b, bg_a);
-    c.cairo_fill_preserve(cr);
-
-    // Draw border if specified
-    if (border_color != null and border_width > 0) {
-        const bcolor = border_color.?;
-        const b_r = @as(f64, @floatFromInt((bcolor >> 16) & 0xFF)) / 255.0;
-        const b_g = @as(f64, @floatFromInt((bcolor >> 8) & 0xFF)) / 255.0;
-        const b_b = @as(f64, @floatFromInt(bcolor & 0xFF)) / 255.0;
-        const b_a = @as(f64, @floatFromInt((bcolor >> 24) & 0xFF)) / 255.0;
-        c.cairo_set_source_rgba(cr, b_r, b_g, b_b, b_a);
-        c.cairo_set_line_width(cr, @floatFromInt(border_width));
-        c.cairo_stroke(cr);
-    } else {
-        c.cairo_new_path(cr); // Clear the path
-    }
-}
-
-fn renderBorder(
-    pixels: [*]u32,
-    pitch: usize,
-    buf_w: usize,
-    buf_h: usize,
-    x: i32,
-    y: i32,
-    w: i32,
-    h: i32,
-    color: u32,
-    border_width: i32,
-) void {
-    // Top border
-    fillRectClipped(pixels, pitch, buf_w, buf_h, x, y, w, border_width, color);
-
-    // Bottom border
-    fillRectClipped(pixels, pitch, buf_w, buf_h, x, y + h - border_width, w, border_width, color);
-
-    // Left border
-    fillRectClipped(pixels, pitch, buf_w, buf_h, x, y, border_width, h, color);
-
-    // Right border
-    fillRectClipped(pixels, pitch, buf_w, buf_h, x + w - border_width, y, border_width, h, color);
-}
-
-fn fillRectClipped(
-    pixels: [*]u32,
-    pitch: usize,
-    buf_w: usize,
-    buf_h: usize,
-    x: i32,
-    y: i32,
-    w: i32,
-    h: i32,
-    color: u32,
-) void {
-    const x0 = @max(x, 0);
-    const y0 = @max(y, 0);
-    const x1 = @min(x + w, @as(i32, @intCast(buf_w)));
-    const y1 = @min(y + h, @as(i32, @intCast(buf_h)));
-
-    if (x0 >= x1 or y0 >= y1) return;
-
-    var py: i32 = y0;
-    while (py < y1) : (py += 1) {
-        const row = @as(usize, @intCast(py)) * pitch;
-        var px: i32 = x0;
-        while (px < x1) : (px += 1) {
-            pixels[row + @as(usize, @intCast(px))] = color;
-        }
-    }
-}
-
 // Widget constructors
 
-pub const PColumn = struct {
+pub const PropwColumn = struct {
     name: []const u8 = "",
     width: i32 = 0,
     height: i32 = 0,
@@ -474,7 +445,7 @@ pub const PColumn = struct {
     border_radius: i32 = 0,
 };
 
-pub fn c_collumn(alloc: std.mem.Allocator, props: PColumn) !*Widget {
+pub fn c_column(alloc: std.mem.Allocator, props: PropwColumn) !*Widget {
     const widget = try alloc.create(Widget);
     widget.* = .{
         .guid = try random.randomId(alloc),
@@ -496,7 +467,7 @@ pub fn c_collumn(alloc: std.mem.Allocator, props: PColumn) !*Widget {
     return widget;
 }
 
-pub const PRow = struct {
+pub const PropsRow = struct {
     name: []const u8 = "",
     width: i32 = 0,
     height: i32 = 0,
@@ -510,7 +481,7 @@ pub const PRow = struct {
     border_radius: i32 = 0,
 };
 
-pub fn c_row(alloc: std.mem.Allocator, props: PRow) !*Widget {
+pub fn c_row(alloc: std.mem.Allocator, props: PropsRow) !*Widget {
     const widget = try alloc.create(Widget);
     widget.* = .{
         .guid = try random.randomId(alloc),
@@ -530,31 +501,65 @@ pub fn c_row(alloc: std.mem.Allocator, props: PRow) !*Widget {
     return widget;
 }
 
-pub const PButton = struct {
+pub const PropsButton = struct {
     name: []const u8 = "",
-    width: i32 = 0,
-    height: i32 = 0,
+    width: i32 = 120,
+    height: i32 = 30,
     label: []const u8 = "",
     background_color: u32 = 0xFF333333,
     border_color: ?u32 = null,
     border_width: ?i32 = 0,
     border_radius: i32 = 0,
+    padding: i32 = 8,
 };
 
-pub fn c_btn(alloc: std.mem.Allocator, props: PButton) !*Widget {
+pub fn c_btn(alloc: std.mem.Allocator, props: PropsButton) !*Widget {
     const widget = try alloc.create(Widget);
+    widget.* = .{ .guid = try random.randomId(alloc), .name = props.name, .width = props.width, .height = props.height, .text = props.label, .widget_type = .Button, .allocator = alloc, .background_color = props.background_color, .border_color = props.border_color, .border_width = props.border_width, .border_radius = props.border_radius };
+
+    widget.padding = props.padding;
+
+    return widget;
+}
+
+// Input component constructor
+pub const PropsInput = struct {
+    name: []const u8 = "",
+    width: i32 = 200,
+    height: i32 = 30,
+    placeholder: []const u8 = "",
+    background_color: u32 = 0xFF222222,
+    border_color: ?u32 = 0xFF555555,
+    border_width: ?i32 = 1,
+    border_radius: i32 = 4,
+    padding: i32 = 8,
+    font_size: i32 = 14,
+    font_color: u32 = 0xFFFFFFFF,
+};
+
+pub fn c_input(alloc: std.mem.Allocator, props: PropsInput) !*Widget {
+    const widget = try alloc.create(Widget);
+
+    // Initialize empty input text
+    const initial_text = try alloc.alloc(u8, 0);
+
     widget.* = .{
         .guid = try random.randomId(alloc),
         .name = props.name,
         .width = props.width,
         .height = props.height,
-        .text = props.label,
-        .widget_type = .Button,
+        .input_text = initial_text,
+        .text = if (props.placeholder.len > 0) props.placeholder else initial_text,
+        .widget_type = .Input,
         .allocator = alloc,
         .background_color = props.background_color,
         .border_color = props.border_color,
         .border_width = props.border_width,
-        .border_radius = props.border_radius
+        .border_radius = props.border_radius,
+        .padding = props.padding,
+        .font_size = props.font_size,
+        .font_color = props.font_color,
+        .font_alignment = .CenterLeft,
     };
 
     return widget;
