@@ -14,6 +14,7 @@ pub const PropsText = struct {
     font_size: i32 = 14,
     font_color: u32 = 0xFFFFFFFF,
     text: []const u8 = "",
+    background_color: u32 = 0x00000000, // Transparent by default
 };
 
 pub fn build(alloc: std.mem.Allocator, props: PropsText) !*Widget {
@@ -31,6 +32,7 @@ pub fn build(alloc: std.mem.Allocator, props: PropsText) !*Widget {
         .font_size = props.font_size,
         .font_color = props.font_color,
         .font_alignment = .CenterLeft,
+        .background_color = props.background_color, // Use transparent background from props
     };
 
     return widget;

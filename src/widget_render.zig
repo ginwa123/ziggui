@@ -175,49 +175,53 @@ pub fn renderWidget(
     const widget_width = widget.width;
     const widget_height = widget.height;
 
-    if (widget.border_radius > 0) {
-        renderRoundedWidget(
-            pixels,
-            pitch,
-            buf_w,
-            buf_h,
-            widget_x,
-            widget_y,
-            widget_width,
-            widget_height,
-            widget.background_color,
-            widget.border_color,
-            widget.border_width orelse 0,
-            widget.border_radius,
-        );
-    } else {
-        fillRectClipped(
-            pixels,
-            pitch,
-            buf_w,
-            buf_h,
-            widget_x,
-            widget_y,
-            widget_width,
-            widget_height,
-            widget.background_color,
-        );
+    // Only render background if not transparent (alpha > 0)
+    const bg_alpha = (widget.background_color >> 24) & 0xFF;
+    if (bg_alpha > 0) {
+        if (widget.border_radius > 0) {
+            renderRoundedWidget(
+                pixels,
+                pitch,
+                buf_w,
+                buf_h,
+                widget_x,
+                widget_y,
+                widget_width,
+                widget_height,
+                widget.background_color,
+                widget.border_color,
+                widget.border_width orelse 0,
+                widget.border_radius,
+            );
+        } else {
+            fillRectClipped(
+                pixels,
+                pitch,
+                buf_w,
+                buf_h,
+                widget_x,
+                widget_y,
+                widget_width,
+                widget_height,
+                widget.background_color,
+            );
 
-        if (widget.border_color != null and widget.border_width != null) {
-            const border_w = widget.border_width.?;
-            if (border_w > 0) {
-                renderBorder(
-                    pixels,
-                    pitch,
-                    buf_w,
-                    buf_h,
-                    widget_x,
-                    widget_y,
-                    widget_width,
-                    widget_height,
-                    widget.border_color.?,
-                    border_w,
-                );
+            if (widget.border_color != null and widget.border_width != null) {
+                const border_w = widget.border_width.?;
+                if (border_w > 0) {
+                    renderBorder(
+                        pixels,
+                        pitch,
+                        buf_w,
+                        buf_h,
+                        widget_x,
+                        widget_y,
+                        widget_width,
+                        widget_height,
+                        widget.border_color.?,
+                        border_w,
+                    );
+                }
             }
         }
     }

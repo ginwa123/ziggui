@@ -46,7 +46,7 @@ pub fn main() !void {
         .name = "row",
         .padding = 8,
         .background_color = 0xFF00FF00,
-        .gap = 14,
+        .gap = 8,
     });
 
     const text1 = try text.build(tk.window.allocator, .{
@@ -59,7 +59,13 @@ pub fn main() !void {
         .text = "text kedua",
     });
 
-    _ = try rowCombineText.add_children(.{ text1, text2 });
+
+    const input3 = try input.build(tk.window.allocator, .{
+        .name = "input",
+        .width = 100,
+    });
+
+    _ = try rowCombineText.add_children(.{ text1, text2, input3 });
 
     _ = try tk.window.add_children(
         .{ input1, rowCombineText },
