@@ -178,6 +178,11 @@ pub fn renderWidget(
     // Only render background if not transparent (alpha > 0)
     const bg_alpha = (widget.background_color >> 24) & 0xFF;
     if (bg_alpha > 0) {
+
+        var current_bg_color = widget.background_color;
+        if (widget.backround_is_hovered) {
+            current_bg_color = widget.background_hover_color orelse widget.background_color;
+        }
         if (widget.border_radius > 0) {
             renderRoundedWidget(
                 pixels,
@@ -188,7 +193,7 @@ pub fn renderWidget(
                 widget_y,
                 widget_width,
                 widget_height,
-                widget.background_color,
+                current_bg_color,
                 widget.border_color,
                 widget.border_width orelse 0,
                 widget.border_radius,
@@ -203,7 +208,7 @@ pub fn renderWidget(
                 widget_y,
                 widget_width,
                 widget_height,
-                widget.background_color,
+                current_bg_color,
             );
 
             if (widget.border_color != null and widget.border_width != null) {

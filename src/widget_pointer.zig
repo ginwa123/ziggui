@@ -34,11 +34,16 @@ fn pointer_leave(
     serial: u32,
     surface: ?*c.struct_wl_surface,
 ) callconv(.c) void {
-    _ = data;
     _ = pointer;
     _ = surface;
     _ = serial;
     std.debug.print("Pointer LEAVE surface\n", .{});
+    const app: *ginwaGTK = @ptrCast(@alignCast(data.?));
+    if (app.hovered_widget) |hovered_widget| {
+        hovered_widget.backround_is_hovered = false;
+        app.hovered_widget = null;
+        wr.redraw(app);
+    }
 }
 
 fn pointer_motion(
@@ -77,6 +82,28 @@ fn pointer_motion(
             }
         }
     }
+
+    // handle hover
+    // const previous_hovered_widget = app.hovered_widget;
+    // if (previous_hovered_widget) |prev| {}
+
+    const previous_hovered_widget = app.hovered_widget;
+    app.hovered_widget = w.findWidgetAt(&app.window, app.pointer_x, app.pointer_y);
+
+    if (previous_hovered_widget) |prev| {
+        if (app.hovered_widget) |hovered_widget| {
+            if (prev != hovered_widget) {
+                prev.backround_is_hovered = false;
+            }
+        }
+    }
+
+    if (app.hovered_widget) |hovered_widget| {
+        std.debug.print("Hover widget: {s}\n", .{hovered_widget.name});
+        hovered_widget.backround_is_hovered = true;
+        wr.redraw(app);
+    }
+
 }
 
 fn calculateCursorPositionFromMouse(widget: *Widget, mouse_x: f64, mouse_y: f64) void {

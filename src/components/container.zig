@@ -9,7 +9,7 @@ pub const PropsContainer = struct {
     width: i32 = 0,
     height: i32 = 0,
     text: []const u8 = "",
-    background_color: u32 = 0xFF333333,
+    background_color: u32 = 0x00000000, // Transparent by default
     orientation: Orientation = .Row,
     gap: i32 = 0,
     padding: i32 = 0,
@@ -18,7 +18,7 @@ pub const PropsContainer = struct {
     border_radius: i32 = 0,
 };
 
-pub fn build( props: PropsContainer) !*Widget {
+pub fn build(props: PropsContainer) !*Widget {
     const allocator = w.default_allocator;
     const widget = try allocator.create(Widget);
     widget.* = .{

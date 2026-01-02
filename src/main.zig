@@ -67,7 +67,7 @@ pub fn main() !void {
     );
 
     const btn1 = try button.build(
-        .{ .name = "label1", .width = 100, .height = 100, .background_color = 0xFF1A1A1A, .label = "label1", .padding = 8 },
+        .{ .name = "label1", .width = 100, .height = 100, .background_color = 0xFF1A1A1A, .label = "label1", .padding = 8, .background_hover_color = 0xFF0000FF },
     );
     btn1.on_click = myButtonCallback;
     _ = try tk.window.add_child(btn1);

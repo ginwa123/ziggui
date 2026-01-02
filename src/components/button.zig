@@ -13,12 +13,14 @@ pub const PropsButton = struct {
     border_width: ?i32 = 0,
     border_radius: i32 = 0,
     padding: i32 = 8,
+    background_hover_color: ?u32 = null,
+    on_click_hover_color: ?u32 = null,
 };
 
 pub fn build(props: PropsButton) !*Widget {
     const allocator = w.default_allocator;
     const widget = try allocator.create(Widget);
-    widget.* = .{ .guid = try random.randomId(allocator), .name = props.name, .width = props.width, .height = props.height, .text = props.label, .widget_type = .Button, .background_color = props.background_color, .border_color = props.border_color, .border_width = props.border_width, .border_radius = props.border_radius };
+    widget.* = .{ .guid = try random.randomId(allocator), .name = props.name, .width = props.width, .height = props.height, .text = props.label, .widget_type = .Button, .background_color = props.background_color, .border_color = props.border_color, .border_width = props.border_width, .border_radius = props.border_radius, .background_hover_color = props.background_hover_color };
 
     widget.padding = props.padding;
 

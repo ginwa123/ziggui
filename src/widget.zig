@@ -189,6 +189,7 @@ pub const ginwaGTK = struct {
     // ui component
     window: Widget = undefined,
     focused_widget: ?*Widget = null,
+    hovered_widget: ?*Widget = null,
 
     // keyboard
     shift_pressed: bool = false,
@@ -426,8 +427,10 @@ pub const Widget = struct {
     font_alignment: FontAlignment = .CenterLeft,
     font_color: u32 = 0xFFFFFFFF,
     font_weight: FontWeight = .Normal, // Added font weight
-    //
+
     background_color: u32 = 0x00000000,
+    backround_is_hovered: bool = false,
+    background_hover_color: ?u32 = null,
     border_radius: i32 = 0,
     border_color: ?u32 = null,
     border_width: ?i32 = 0,

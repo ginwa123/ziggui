@@ -61,7 +61,10 @@ fn keyboard_leave(
     _ = keyboard;
     _ = serial;
     _ = surface;
-    _ = data;
+
+    const app: *ginwaGTK = @ptrCast(@alignCast(data.?));
+
+    app.key_repeat_active = false;
     std.debug.print("Keyboard focus lost\n", .{});
 }
 
