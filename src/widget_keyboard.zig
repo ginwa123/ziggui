@@ -76,6 +76,9 @@ fn keyboard_key(
     _ = keyboard;
     _ = serial;
     _ = time;
+    // const KEY_CTRL = 29;
+    const KEY_C = 46;
+    const KEY_V = 47;
 
     const app: *ginwaGTK = @ptrCast(@alignCast(data.?));
 
@@ -97,6 +100,46 @@ fn keyboard_key(
                 const now = utils.getNanoTime();
                 const delay_ms = app.keyboard_delay * 1_000_000;
                 app.next_key_repeat_time = now + delay_ms;
+
+                // Copy text to clipboard
+                if (app.ctrl_pressed and key == KEY_C and state == c.WL_KEYBOARD_KEY_STATE_PRESSED) {
+                    if (widget.input_text.len > 0) {
+                        const start_selection = @min(widget.selection_start.?, widget.selection_end.?);
+                        const end_selection = @max(widget.selection_start.?, widget.selection_end.?);
+
+                        const selection_text = widget.input_text[start_selection..end_selection];
+
+                        if (app.clipboard_text) |text| {
+                            app.allocator().free(text);
+                        }
+
+                        const clipboard_len = end_selection - start_selection;
+                        const new_clipboard = app.allocator().alloc(u8, clipboard_len) catch return;
+                        @memcpy(new_clipboard, selection_text);
+                        app.clipboard_text = new_clipboard;
+
+                        std.debug.print("Copied text to clipboard: {s}\n", .{selection_text});
+                    }
+                }
+
+                // Paste text from clipboard
+                if (app.ctrl_pressed and key == KEY_V and state == c.WL_KEYBOARD_KEY_STATE_PRESSED) {
+                    if (app.clipboard_text) |text| {
+                        const has_selection = widget.selection_start != null and widget.selection_end != null;
+                        if (has_selection) {
+                            deleteSelection(widget, app.allocator());
+                        }
+
+                        for (text) |char| {
+                            // Check maximum length constraint
+                            const max_len = widget.max_input_text_length;
+                            if (max_len > 0 and @as(i32, @intCast(widget.input_text.len)) >= max_len) {
+                                break;
+                            }
+                            insertCharAtCursor(widget, char, app.allocator());
+                        }
+                    }
+                }
             }
         }
     }
@@ -105,6 +148,24 @@ fn keyboard_key(
         app.key_repeat_active = false;
         app.pressed_key = null;
     }
+}
+
+fn validKeycode(keycode: u32) u32 {
+    const qwerty_codes = [_]u32{
+        16, 17, 18, 19, 20, 21, 22, 23, 24, 25, // q-p
+        30, 31, 32, 33, 34, 35, 36, 37, 38, // a-l
+        44, 45, 46, 47, 48, 49, 50, // z-m
+        12, 13, 26, 27, 39, 40, 41,
+        43, 51, 52, 53,
+    };
+
+    for (qwerty_codes, 0..) |code, i| {
+        _ = i;
+        if (code == keycode) {
+            return code;
+        }
+    }
+    return 0;
 }
 
 // this is keycode to char for linux only
@@ -162,10 +223,14 @@ pub fn handleInputKey(app: *ginwaGTK, widget: *Widget, key: u32, shift_pressed: 
     const KEY_END = 107; // End key
     const KEY_DELETE = 111; // Delete key
     const KEY_A = 30; // A key for Ctrl+A
-    const KEY_CTRL = 29;
-    const KEY_SHIFT = 42;
+    // const KEY_CTRL = 29;
+    // const KEY_SHIFT = 42;
+    const KEY_C = 46;
+    const KEY_SPACE = 57;
 
-    // const is_char = keycodeToChar(key, app.shift_pressed) != null;
+    const truncated_key: u8 = @truncate(key);
+    const result = validKeycode(truncated_key);
+    const is_letter = truncated_key == result;
 
     // Handle Ctrl+A for select all
     if (ctrl_pressed and key == KEY_A) {
@@ -182,8 +247,21 @@ pub fn handleInputKey(app: *ginwaGTK, widget: *Widget, key: u32, shift_pressed: 
 
     // If there's a selection and user types something (not arrow keys), delete selection first
     const has_selection = widget.selection_start != null and widget.selection_end != null;
-    if (has_selection and key != KEY_LEFT and key != KEY_RIGHT and key != KEY_HOME and key != KEY_END and key != KEY_SHIFT and key != KEY_CTRL) {
+    if (has_selection and
+        is_letter == true)
+    {
         deleteSelection(widget, alloc);
+    } else if (has_selection and (KEY_BACKSPACE == key or
+        KEY_DELETE == key or
+        KEY_SPACE == key))
+    {
+        // If there's a selection and user types something (not arrow keys), delete selection first
+        deleteSelection(widget, alloc);
+    }
+
+    std.debug.print("key: {d}\n", .{key});
+    if (ctrl_pressed and key == KEY_C) {
+        return;
     }
 
     const previous_anchor = widget.cursor_position;
@@ -233,7 +311,10 @@ pub fn handleInputKey(app: *ginwaGTK, widget: *Widget, key: u32, shift_pressed: 
         widget.cursor_position = widget.input_text.len;
     } else if (key == KEY_BACKSPACE) {
         // Delete character before cursor (selection already deleted above if exists)
-        if (widget.cursor_position > 0) {
+        // Clamp cursor position to actual text length
+        const safe_cursor_pos = @min(widget.cursor_position, widget.input_text.len);
+
+        if (safe_cursor_pos > 0) {
             // Check minimum length constraint
             const min_len = @max(0, widget.min_input_text_length);
             if (@as(i32, @intCast(widget.input_text.len)) <= min_len) {
@@ -243,22 +324,25 @@ pub fn handleInputKey(app: *ginwaGTK, widget: *Widget, key: u32, shift_pressed: 
 
             const new_text = alloc.alloc(u8, widget.input_text.len - 1) catch return;
 
-            if (widget.cursor_position > 1) {
-                @memcpy(new_text[0 .. widget.cursor_position - 1], widget.input_text[0 .. widget.cursor_position - 1]);
+            if (safe_cursor_pos > 1) {
+                @memcpy(new_text[0 .. safe_cursor_pos - 1], widget.input_text[0 .. safe_cursor_pos - 1]);
             }
 
-            if (widget.cursor_position < widget.input_text.len) {
-                @memcpy(new_text[widget.cursor_position - 1 ..], widget.input_text[widget.cursor_position..]);
+            if (safe_cursor_pos < widget.input_text.len) {
+                @memcpy(new_text[safe_cursor_pos - 1 ..], widget.input_text[safe_cursor_pos..]);
             }
 
             alloc.free(widget.input_text);
             widget.input_text = new_text;
             widget.text = widget.input_text;
-            widget.cursor_position -= 1;
+            widget.cursor_position = safe_cursor_pos - 1;
         }
     } else if (key == KEY_DELETE) {
         // Delete character at cursor
-        if (widget.cursor_position < widget.input_text.len) {
+        // Clamp cursor position to actual text length
+        const safe_cursor_pos = @min(widget.cursor_position, widget.input_text.len);
+
+        if (safe_cursor_pos < widget.input_text.len) {
             // Check minimum length constraint
             const min_len = @max(0, widget.min_input_text_length);
             if (@as(i32, @intCast(widget.input_text.len)) <= min_len) {
@@ -268,12 +352,12 @@ pub fn handleInputKey(app: *ginwaGTK, widget: *Widget, key: u32, shift_pressed: 
 
             const new_text = alloc.alloc(u8, widget.input_text.len - 1) catch return;
 
-            if (widget.cursor_position > 0) {
-                @memcpy(new_text[0..widget.cursor_position], widget.input_text[0..widget.cursor_position]);
+            if (safe_cursor_pos > 0) {
+                @memcpy(new_text[0..safe_cursor_pos], widget.input_text[0..safe_cursor_pos]);
             }
 
-            if (widget.cursor_position + 1 < widget.input_text.len) {
-                @memcpy(new_text[widget.cursor_position..], widget.input_text[widget.cursor_position + 1 ..]);
+            if (safe_cursor_pos + 1 < widget.input_text.len) {
+                @memcpy(new_text[safe_cursor_pos..], widget.input_text[safe_cursor_pos + 1 ..]);
             }
 
             alloc.free(widget.input_text);
@@ -353,19 +437,23 @@ fn deleteSelection(widget: *Widget, alloc: std.mem.Allocator) void {
 }
 
 fn insertCharAtCursor(widget: *Widget, char: u8, alloc: std.mem.Allocator) void {
+    // Clamp cursor position to actual text length
+    // This handles the case where cursor is in a placeholder but input_text is empty
+    const safe_cursor_pos = @min(widget.cursor_position, widget.input_text.len);
+
     const new_text = alloc.alloc(u8, widget.input_text.len + 1) catch return;
 
     // Copy text before cursor
-    if (widget.cursor_position > 0) {
-        @memcpy(new_text[0..widget.cursor_position], widget.input_text[0..widget.cursor_position]);
+    if (safe_cursor_pos > 0) {
+        @memcpy(new_text[0..safe_cursor_pos], widget.input_text[0..safe_cursor_pos]);
     }
 
     // Insert new character
-    new_text[widget.cursor_position] = char;
+    new_text[safe_cursor_pos] = char;
 
     // Copy text after cursor
-    if (widget.cursor_position < widget.input_text.len) {
-        @memcpy(new_text[widget.cursor_position + 1 ..], widget.input_text[widget.cursor_position..]);
+    if (safe_cursor_pos < widget.input_text.len) {
+        @memcpy(new_text[safe_cursor_pos + 1 ..], widget.input_text[safe_cursor_pos..]);
     }
 
     if (widget.input_text.len > 0) {
@@ -373,7 +461,7 @@ fn insertCharAtCursor(widget: *Widget, char: u8, alloc: std.mem.Allocator) void 
     }
     widget.input_text = new_text;
     widget.text = widget.input_text;
-    widget.cursor_position += 1;
+    widget.cursor_position = safe_cursor_pos + 1;
 }
 
 fn appendChar(widget: *Widget, char: u8, alloc: std.mem.Allocator) void {
@@ -400,10 +488,9 @@ fn keyboard_modifiers(
     group: u32,
 ) callconv(.c) void {
     _ = keyboard;
-    _ = serial;
-    _ = mods_latched;
-    _ = group;
-
+    _ = serial; // not used
+    _ = mods_latched; // not used
+    _ = group; // not used
     const app: *ginwaGTK = @ptrCast(@alignCast(data.?));
 
     // Wayland modifier masks
@@ -414,6 +501,8 @@ fn keyboard_modifiers(
     app.shift_pressed = (mods_depressed & SHIFT_MASK) != 0 or (mods_locked & SHIFT_MASK) != 0;
     app.ctrl_pressed = (mods_depressed & CTRL_MASK) != 0;
     app.alt_pressed = (mods_depressed & ALT_MASK) != 0;
+
+    std.debug.print("keyboard_modifiers: shift: {}, ctrl: {}, alt: {}\n", .{ app.shift_pressed, app.ctrl_pressed, app.alt_pressed });
 }
 
 pub const keyboard_listener = c.wl_keyboard_listener{

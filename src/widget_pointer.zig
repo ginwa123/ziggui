@@ -104,6 +104,8 @@ fn calculateCursorPositionFromMouse(widget: *Widget, mouse_x: f64, mouse_y: f64)
     // Use same text as displayed
     const display_text = if (widget.input_text.len > 0)
         widget.input_text
+    else if (widget.placeholder.len > 0)
+        widget.placeholder
     else
         widget.text;
 

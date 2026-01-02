@@ -23,17 +23,23 @@ pub const ginwaGTK = struct {
     wl_pointer: ?*c.wl_pointer = null,
     wl_seat: ?*c.wl_seat = null,
     wl_keyboard: ?*c.wl_keyboard = null,
+    data_device_manager: ?*c.wl_data_device_manager = null,
+    data_source: ?*c.wl_data_source = null,
+    data_device: ?*c.wl_data_device = null,
 
+    // screen
     old_buffer: ?*c.wl_buffer = null,
     current_buffer: ?*c.wl_buffer = null,
     shm_data: [*]u8 = undefined,
+
+    // clipboard to copy paste text
+    clipboard_text: ?[]u8 = null,
 
     // window properties
     win_title: [*c]const u8,
     win_width: i32 = 800,
     win_height: i32 = 600,
     layout_initialized: bool = false,
-
 
     // mouse
     pointer_x: f64 = 0,
@@ -121,6 +127,55 @@ pub const ginwaGTK = struct {
 
             _ = c.wl_seat_add_listener(app.wl_seat, &seat_listener, app);
         }
+
+        if (std.mem.eql(u8, iface, "wl_data_device_manager")) {
+            app.data_device_manager = @ptrCast(c.wl_registry_bind(registry, name, &c.wl_data_device_manager_interface, version));
+
+            app.data_device = c.wl_data_device_manager_get_data_device(app.data_device_manager, app.wl_seat);
+
+            app.data_source = c.wl_data_device_manager_create_data_source(app.data_device_manager);
+
+            // Add text/plain MIME type
+            c.wl_data_source_offer(app.data_source, "text/plain");
+
+            // Set up listeners for data source
+            _ = c.wl_data_source_add_listener(app.data_source, &data_source_listener, app);
+
+            // Set the selection on the data device
+            c.wl_data_device_set_selection(app.data_device, app.data_source, 0);
+        }
+    }
+
+    pub const data_source_listener = c.wl_data_source_listener{
+        .target = dataSourceTarget,
+        .send = dataSourceSend,
+        .cancelled = dataSourceCancelled,
+    };
+
+    fn dataSourceSend(data: ?*anyopaque, data_source: ?*c.wl_data_source, mime_type: [*c]const u8, fd: i32) callconv(.c) void {
+        _ = data_source;
+        const app: *ginwaGTK = @ptrCast(@alignCast(data.?));
+        const mime_str = std.mem.span(mime_type);
+
+        if (std.mem.eql(u8, mime_str, "text/plain")) {
+            if (app.clipboard_text) |text| {
+                _ = c.write(fd, text.ptr, text.len);
+            }
+        }
+        _ = c.close(fd);
+    }
+
+    fn dataSourceTarget(data: ?*anyopaque, data_source: ?*c.wl_data_source, mime_type: [*c]const u8) callconv(.c) void {
+        _ = data;
+        _ = data_source;
+        _ = mime_type;
+    }
+
+    fn dataSourceCancelled(data: ?*anyopaque, data_source: ?*c.wl_data_source) callconv(.c) void {
+        _ = data_source;
+        const app: *ginwaGTK = @ptrCast(@alignCast(data.?));
+        _ = c.wl_data_source_destroy(app.data_source);
+        app.data_source = null;
     }
 
     fn registryHandleGlobalRemove(user_data: ?*anyopaque, registry: ?*c.struct_wl_registry, name: u32) callconv(.c) void {
@@ -207,7 +262,6 @@ pub fn findWidgetAt(widget: *Widget, x: f64, y: f64) ?*Widget {
     const fw = @as(f64, @floatFromInt(widget.width));
     const fh = @as(f64, @floatFromInt(widget.height));
 
-    // Cek apakah point berada di dalam widget ini
     const is_inside = x >= fx and x < fx + fw and y >= fy and y < fy + fh;
 
     if (!is_inside) return null;
@@ -376,6 +430,7 @@ pub const Widget = struct {
     height: i32 = 0,
     padding: i32 = 0,
     input_text: []const u8 = "",
+    placeholder: []const u8 = "",
     max_input_text_length: i32 = 0,
     min_input_text_length: i32 = 0,
     text: []const u8 = "",
@@ -553,7 +608,7 @@ pub fn c_input(alloc: std.mem.Allocator, props: PropsInput) !*Widget {
         .width = props.width,
         .height = props.height,
         .input_text = initial_text,
-        .text = if (props.placeholder.len > 0) props.placeholder else initial_text,
+        .placeholder = props.placeholder,
         .widget_type = .Input,
         .allocator = alloc,
         .background_color = props.background_color,

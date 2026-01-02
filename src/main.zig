@@ -33,6 +33,7 @@ pub fn main() !void {
     const input = try ui.c_input(tk.window.allocator, .{
         .name = "input",
         .max_input_text_length = 255,
+        .placeholder = "placeholder",
     });
     _ = try tk.window.add_children(input);
 

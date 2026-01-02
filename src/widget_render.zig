@@ -37,8 +37,13 @@ pub fn renderText(
     defer c.g_object_unref(layout);
 
     // Use input_text for Input widgets, otherwise use text
-    const display_text = if (widget.widget_type == .Input and widget.input_text.len > 0)
-        widget.input_text
+    const display_text = if (widget.widget_type == .Input)
+        if (widget.input_text.len > 0)
+            widget.input_text
+        else if (widget.placeholder.len > 0)
+            widget.placeholder
+        else
+            widget.text
     else
         widget.text;
 
@@ -638,7 +643,12 @@ pub fn renderEventLoop(app: *ginwaGTK) void {
 }
 
 pub fn ensureCursorVisible(self: *Widget, widget_width: i32) void {
-    const text = if (self.input_text.len > 0) self.input_text else self.text;
+    const text = if (self.input_text.len > 0)
+        self.input_text
+    else if (self.placeholder.len > 0)
+        self.placeholder
+    else
+        self.text;
     if (text.len == 0) {
         self.scroll_offset = 0; // Reset scroll when empty
         return;
