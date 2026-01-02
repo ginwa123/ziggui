@@ -21,7 +21,7 @@ pub const PropsInput = struct {
     min_input_text_length: i32 = 0,
 };
 
-pub fn c_input(alloc: std.mem.Allocator, props: PropsInput) !*Widget {
+pub fn build(alloc: std.mem.Allocator, props: PropsInput) !*Widget {
     const widget = try alloc.create(Widget);
 
     // Initialize empty input text

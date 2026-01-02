@@ -1,0 +1,37 @@
+
+
+const std = @import("std");
+const w = @import("../widget.zig");
+const random = @import("../random.zig");
+const Widget = w.Widget;
+
+
+// Input component constructor
+pub const PropsText = struct {
+    name: []const u8 = "",
+    width: i32 = 200,
+    height: i32 = 30,
+    font_size: i32 = 14,
+    font_color: u32 = 0xFFFFFFFF,
+    text: []const u8 = "",
+};
+
+pub fn build(alloc: std.mem.Allocator, props: PropsText) !*Widget {
+    const widget = try alloc.create(Widget);
+
+    // Initialize empty input text
+    widget.* = .{
+        .guid = try random.randomId(alloc),
+        .name = props.name,
+        .width = props.width,
+        .height = props.height,
+        .text = props.text,
+        .widget_type = .Text,
+        .allocator = alloc,
+        .font_size = props.font_size,
+        .font_color = props.font_color,
+        .font_alignment = .CenterLeft,
+    };
+
+    return widget;
+}

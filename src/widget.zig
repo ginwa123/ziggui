@@ -377,7 +377,7 @@ pub const Orientation = enum {
     Column,
 };
 
-pub const WidgetType = enum { Button, Layout, Input };
+pub const WidgetType = enum { Button, Layout, Input, Text };
 
 pub const FontWeight = enum {
     Normal,
@@ -463,7 +463,7 @@ pub const Widget = struct {
         }
     }
 
-    pub fn add_children(self: *Widget, child: *Widget) !void {
+    pub fn add_child(self: *Widget, child: *Widget) !void {
         if (self.children == null) {
             std.debug.print("create children list\n", .{});
             self.children = .empty;
@@ -471,6 +471,13 @@ pub const Widget = struct {
 
         child.parent_guid = self.guid;
         try self.children.?.append(self.allocator, child);
+    }
+
+    pub fn add_children(self: *Widget, children: anytype) !void {
+        // @TypeOf(children) is a tuple or array of *Widget
+        inline for (children) |child| {
+            try self.add_child(child);
+        }
     }
 
     pub fn deinit(self: *Widget) void {
@@ -485,143 +492,3 @@ pub const Widget = struct {
 };
 
 // Widget constructors
-
-pub const PropwColumn = struct {
-    name: []const u8 = "",
-    width: i32 = 0,
-    height: i32 = 0,
-    label: []const u8 = "",
-    font_type: [*:0]const u8 = "",
-    font_size: i32 = 16,
-    background_color: u32 = 0xFF333333,
-    orientation: Orientation = .Column,
-    gap: i32 = 0,
-    padding: i32 = 0,
-    border_color: ?u32 = null,
-    border_width: ?i32 = 0,
-    border_radius: i32 = 0,
-};
-
-pub fn c_column(alloc: std.mem.Allocator, props: PropwColumn) !*Widget {
-    const widget = try alloc.create(Widget);
-    widget.* = .{
-        .guid = try random.randomId(alloc),
-        .name = props.name,
-        .width = props.width,
-        .height = props.height,
-        .text = props.label,
-        .widget_type = .Layout,
-        .allocator = alloc,
-        .background_color = props.background_color,
-        .orientation = props.orientation,
-        .font_size = props.font_size,
-        .font_type = props.font_type,
-        .border_color = props.border_color,
-        .border_width = props.border_width,
-        .border_radius = props.border_radius,
-    };
-
-    return widget;
-}
-
-pub const PropsRow = struct {
-    name: []const u8 = "",
-    width: i32 = 0,
-    height: i32 = 0,
-    text: []const u8 = "",
-    background_color: u32 = 0xFF333333,
-    orientation: Orientation = .Row,
-    gap: i32 = 0,
-    padding: i32 = 0,
-    border_color: ?u32 = null,
-    border_width: ?i32 = 0,
-    border_radius: i32 = 0,
-};
-
-pub fn c_row(alloc: std.mem.Allocator, props: PropsRow) !*Widget {
-    const widget = try alloc.create(Widget);
-    widget.* = .{
-        .guid = try random.randomId(alloc),
-        .name = props.name,
-        .width = props.width,
-        .height = props.height,
-        .text = props.text,
-        .widget_type = .Layout,
-        .allocator = alloc,
-        .background_color = props.background_color,
-        .orientation = props.orientation,
-        .border_color = props.border_color,
-        .border_width = props.border_width,
-        .border_radius = props.border_radius,
-    };
-
-    return widget;
-}
-
-pub const PropsButton = struct {
-    name: []const u8 = "",
-    width: i32 = 120,
-    height: i32 = 30,
-    label: []const u8 = "",
-    background_color: u32 = 0xFF333333,
-    border_color: ?u32 = null,
-    border_width: ?i32 = 0,
-    border_radius: i32 = 0,
-    padding: i32 = 8,
-};
-
-pub fn c_btn(alloc: std.mem.Allocator, props: PropsButton) !*Widget {
-    const widget = try alloc.create(Widget);
-    widget.* = .{ .guid = try random.randomId(alloc), .name = props.name, .width = props.width, .height = props.height, .text = props.label, .widget_type = .Button, .allocator = alloc, .background_color = props.background_color, .border_color = props.border_color, .border_width = props.border_width, .border_radius = props.border_radius };
-
-    widget.padding = props.padding;
-
-    return widget;
-}
-
-// Input component constructor
-pub const PropsInput = struct {
-    name: []const u8 = "",
-    width: i32 = 200,
-    height: i32 = 30,
-    placeholder: []const u8 = "",
-    background_color: u32 = 0xFF222222,
-    border_color: ?u32 = 0xFF555555,
-    border_width: ?i32 = 1,
-    border_radius: i32 = 4,
-    padding: i32 = 8,
-    font_size: i32 = 14,
-    font_color: u32 = 0xFFFFFFFF,
-    max_input_text_length: i32 = 0,
-    min_input_text_length: i32 = 0,
-};
-
-pub fn c_input(alloc: std.mem.Allocator, props: PropsInput) !*Widget {
-    const widget = try alloc.create(Widget);
-
-    // Initialize empty input text
-    const initial_text = try alloc.alloc(u8, 0);
-
-    widget.* = .{
-        .guid = try random.randomId(alloc),
-        .name = props.name,
-        .width = props.width,
-        .height = props.height,
-        .input_text = initial_text,
-        .placeholder = props.placeholder,
-        .widget_type = .Input,
-        .allocator = alloc,
-        .background_color = props.background_color,
-        .border_color = props.border_color,
-        .border_width = props.border_width,
-        .border_radius = props.border_radius,
-        .padding = props.padding,
-        .font_size = props.font_size,
-        .font_color = props.font_color,
-        .font_alignment = .CenterLeft,
-        .max_input_text_length = props.max_input_text_length,
-        .min_input_text_length = props.min_input_text_length,
-    };
-
-    return widget;
-}

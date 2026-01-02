@@ -6,6 +6,12 @@ const Orientation = @import("widget.zig").Orientation;
 const ui = @import("widget.zig");
 const c = @import("c.zig").c;
 
+const button = @import("components/button.zig");
+const input = @import("components/input.zig");
+const row = @import("components/row.zig");
+const column = @import("components/column.zig");
+const text = @import("components/text.zig");
+
 fn myButtonCallback(widget: *Widget, data: ?*anyopaque) void {
     _ = widget;
     _ = data;
@@ -30,28 +36,50 @@ pub fn main() !void {
     tk.window.padding = 8;
     tk.window.gap = 8;
 
-    const input = try ui.c_input(tk.window.allocator, .{
+    const input1 = try input.build(tk.window.allocator, .{
         .name = "input",
         .max_input_text_length = 255,
         .placeholder = "placeholder",
     });
-    _ = try tk.window.add_children(input);
 
-    const btn1 = try ui.c_btn(
+    const rowCombineText = try row.build(tk.window.allocator, .{
+        .name = "row",
+        .padding = 8,
+        .background_color = 0xFF00FF00,
+        .gap = 14,
+    });
+
+    const text1 = try text.build(tk.window.allocator, .{
+        .name = "text",
+        .text = "its just a text",
+    });
+
+    const text2 = try text.build(tk.window.allocator, .{
+        .name = "text",
+        .text = "text kedua",
+    });
+
+    _ = try rowCombineText.add_children(.{ text1, text2 });
+
+    _ = try tk.window.add_children(
+        .{ input1, rowCombineText },
+    );
+
+    const btn1 = try button.build(
         tk.window.allocator,
         .{ .name = "label1", .width = 100, .height = 100, .background_color = 0xFF1A1A1A, .label = "label1", .padding = 8 },
     );
     btn1.on_click = myButtonCallback;
-    _ = try tk.window.add_children(btn1);
+    _ = try tk.window.add_child(btn1);
     //
-    const btn2 = try ui.c_btn(
+    const btn2 = try button.build(
         tk.window.allocator,
         .{ .name = "button1", .background_color = 0xFF3488FF, .label = "Gambar" },
     );
 
-    _ = try tk.window.add_children(btn2);
+    _ = try tk.window.add_child(btn2);
 
-    const btn3 = try ui.c_btn(
+    const btn3 = try button.build(
         tk.window.allocator,
         .{
             .name = "button1",
@@ -61,17 +89,17 @@ pub fn main() !void {
         },
     );
 
-    _ = try tk.window.add_children(btn3);
+    _ = try tk.window.add_child(btn3);
 
-    const rowwww = try ui.c_row(tk.window.allocator, .{ .name = "column1", .padding = 8, .background_color = 0xFF1A1A1A, .gap = 14 });
+    const rowwww = try row.build(tk.window.allocator, .{ .name = "column1", .padding = 8, .background_color = 0xFF1A1A1A, .gap = 14 });
 
-    const btnColumn11 = try ui.c_btn(
+    const btnColumn11 = try button.build(
         tk.window.allocator,
         .{ .name = "button1", .background_color = 0xFFFF7F00, .label = "orange", .border_radius = 8 },
     );
-    _ = try rowwww.add_children(btnColumn11);
+    _ = try rowwww.add_child(btnColumn11);
     //
-    const btnColumn12 = try ui.c_btn(
+    const btnColumn12 = try button.build(
         uiToolkit.allocator(),
         .{
             .name = "button1",
@@ -79,9 +107,9 @@ pub fn main() !void {
             .label = "label2",
         },
     );
-    _ = try rowwww.add_children(btnColumn12);
+    _ = try rowwww.add_child(btnColumn12);
 
-    const btnColumn13 = try ui.c_btn(
+    const btnColumn13 = try button.build(
         uiToolkit.allocator(),
         .{
             .name = "button1",
@@ -89,9 +117,9 @@ pub fn main() !void {
             .label = "label2",
         },
     );
-    _ = try rowwww.add_children(btnColumn13);
+    _ = try rowwww.add_child(btnColumn13);
 
-    _ = try tk.window.add_children(rowwww);
+    _ = try tk.window.add_child(rowwww);
     // const new_buffer = tk.create_shm_buffer();
     // defer c.wl_buffer_destroy(new_buffer);
     // c.wl_surface_attach(tk.surface, new_buffer, 0, 0);
@@ -108,15 +136,4 @@ test "simple test" {
     defer list.deinit(gpa); // Try commenting this out and see if zig detects the memory leak!
     try list.append(gpa, 42);
     try std.testing.expectEqual(@as(i32, 42), list.pop());
-}
-
-test "fuzz example" {
-    const Context = struct {
-        fn testOne(context: @This(), input: []const u8) anyerror!void {
-            _ = context;
-            // Try passing `--fuzz` to `zig build test` and see if it manages to fail this test case!
-            try std.testing.expect(!std.mem.eql(u8, "canyoufindme", input));
-        }
-    };
-    try std.testing.fuzz(Context{}, Context.testOne, .{});
 }

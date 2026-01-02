@@ -150,7 +150,7 @@ fn keyboard_key(
     }
 }
 
-fn validKeycode(keycode: u32) u32 {
+fn validLetterKey(keycode: u32) u32 {
     const qwerty_codes = [_]u32{
         16, 17, 18, 19, 20, 21, 22, 23, 24, 25, // q-p
         30, 31, 32, 33, 34, 35, 36, 37, 38, // a-l
@@ -229,7 +229,7 @@ pub fn handleInputKey(app: *ginwaGTK, widget: *Widget, key: u32, shift_pressed: 
     const KEY_SPACE = 57;
 
     const truncated_key: u8 = @truncate(key);
-    const result = validKeycode(truncated_key);
+    const result = validLetterKey(truncated_key);
     const is_letter = truncated_key == result;
 
     // Handle Ctrl+A for select all
@@ -248,10 +248,12 @@ pub fn handleInputKey(app: *ginwaGTK, widget: *Widget, key: u32, shift_pressed: 
     // If there's a selection and user types something (not arrow keys), delete selection first
     const has_selection = widget.selection_start != null and widget.selection_end != null;
     if (has_selection and
+        ctrl_pressed == false and
         is_letter == true)
     {
         deleteSelection(widget, alloc);
-    } else if (has_selection and (KEY_BACKSPACE == key or
+    } else if (has_selection and
+        ctrl_pressed == false and (KEY_BACKSPACE == key or
         KEY_DELETE == key or
         KEY_SPACE == key))
     {
