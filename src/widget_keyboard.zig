@@ -92,11 +92,6 @@ fn keyboard_key(
 
         if (app.focused_widget) |widget| {
             if (widget.widget_type == .Input) {
-                handleInputKey(app, widget, key, app.shift_pressed, app.ctrl_pressed, app.allocator());
-
-                // Trigger redraw
-                wr.redraw(app);
-
                 const now = utils.getNanoTime();
                 const delay_ms = app.keyboard_delay * 1_000_000;
                 app.next_key_repeat_time = now + delay_ms;
@@ -119,6 +114,8 @@ fn keyboard_key(
                         app.clipboard_text = new_clipboard;
 
                         std.debug.print("Copied text to clipboard: {s}\n", .{selection_text});
+                        wr.redraw(app);
+                        return;
                     }
                 }
 
@@ -138,8 +135,15 @@ fn keyboard_key(
                             }
                             insertCharAtCursor(widget, char, app.allocator());
                         }
+                        wr.redraw(app);
+                        return;
                     }
                 }
+
+                handleInputKey(app, widget, key, app.shift_pressed, app.ctrl_pressed, app.allocator());
+
+                // Trigger redraw
+                wr.redraw(app);
             }
         }
     }

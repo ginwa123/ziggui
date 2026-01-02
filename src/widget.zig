@@ -9,6 +9,135 @@ const random = @import("random.zig");
 const debugger = @import("debugger.zig");
 const utils = @import("utils.zig");
 
+pub var default_allocator: std.mem.Allocator = undefined;
+
+pub fn init(alloc: std.mem.Allocator, app: *ginwaGTK) !*ginwaGTK {
+    default_allocator = alloc;
+
+    app.display = c.wl_display_connect(null);
+
+    const registry = c.wl_display_get_registry(app.display);
+
+    const registry_listener = c.wl_registry_listener{
+        .global = registryHandleGlobal,
+        .global_remove = registryHandleGlobalRemove,
+    };
+    _ = c.wl_registry_add_listener(registry, &registry_listener, app);
+    _ = c.wl_display_roundtrip(app.display);
+
+    // c.xdg_toplevel_sst_title(self.xdg_toplevel, self.win_title);
+    c.xdg_toplevel_set_title(app.xdg_toplevel, app.win_title);
+
+    // default_gpa = self.gpa;
+    // default_allocator = self.allocator();
+
+    return app;
+}
+
+pub const xdg_surface_listener = c.xdg_surface_listener{
+    .configure = xdgSurfaceConfigure,
+};
+
+pub const xdg_wm_base_listener = c.xdg_wm_base_listener{
+    .ping = xdgWmBasePing,
+};
+
+fn registryHandleGlobal(user_data: ?*anyopaque, registry: ?*c.struct_wl_registry, name: u32, interface: [*c]const u8, version: u32) callconv(.c) void {
+    const app: *ginwaGTK = @ptrCast(@alignCast(user_data));
+    std.debug.print("Found global {} of interface {s} version {}\n", .{ name, interface, version });
+
+    const iface = std.mem.span(interface);
+    if (std.mem.eql(u8, iface, "wl_compositor")) {
+        app.compositor = @ptrCast(c.wl_registry_bind(
+            registry,
+            name,
+            &c.wl_compositor_interface,
+            version,
+        ));
+        app.surface = c.wl_compositor_create_surface(app.compositor);
+    }
+
+    if (std.mem.eql(u8, iface, "xdg_wm_base")) {
+        app.xdg_wm_base = @ptrCast(c.wl_registry_bind(
+            registry,
+            name,
+            &c.xdg_wm_base_interface,
+            4,
+        ));
+        app.xdg_surface = c.xdg_wm_base_get_xdg_surface(app.xdg_wm_base, app.surface);
+        _ = c.xdg_surface_add_listener(app.xdg_surface, &xdg_surface_listener, app);
+
+        app.xdg_toplevel = c.xdg_surface_get_toplevel(app.xdg_surface);
+        _ = c.xdg_toplevel_add_listener(app.xdg_toplevel, &xdg_toplevel_listener, app);
+        _ = c.xdg_wm_base_add_listener(app.xdg_wm_base, &xdg_wm_base_listener, app);
+    }
+
+    if (std.mem.eql(u8, iface, "wl_shm")) {
+        app.shm = @ptrCast(c.wl_registry_bind(registry, name, &c.wl_shm_interface, 1));
+    }
+
+    if (std.mem.eql(u8, iface, "wl_seat")) {
+        app.wl_seat = @ptrCast(c.wl_registry_bind(registry, name, &c.wl_seat_interface, version));
+
+        _ = c.wl_seat_add_listener(app.wl_seat, &seat_listener, app);
+    }
+
+    if (std.mem.eql(u8, iface, "wl_data_device_manager")) {
+        app.data_device_manager = @ptrCast(c.wl_registry_bind(registry, name, &c.wl_data_device_manager_interface, version));
+
+        app.data_device = c.wl_data_device_manager_get_data_device(app.data_device_manager, app.wl_seat);
+
+        app.data_source = c.wl_data_device_manager_create_data_source(app.data_device_manager);
+
+        // Add text/plain MIME type
+        c.wl_data_source_offer(app.data_source, "text/plain");
+
+        // Set up listeners for data source
+        _ = c.wl_data_source_add_listener(app.data_source, &data_source_listener, app);
+
+        // Set the selection on the data device
+        c.wl_data_device_set_selection(app.data_device, app.data_source, 0);
+    }
+}
+
+pub const data_source_listener = c.wl_data_source_listener{
+    .target = dataSourceTarget,
+    .send = dataSourceSend,
+    .cancelled = dataSourceCancelled,
+};
+
+fn dataSourceSend(data: ?*anyopaque, data_source: ?*c.wl_data_source, mime_type: [*c]const u8, fd: i32) callconv(.c) void {
+    _ = data_source;
+    const app: *ginwaGTK = @ptrCast(@alignCast(data.?));
+    const mime_str = std.mem.span(mime_type);
+
+    if (std.mem.eql(u8, mime_str, "text/plain")) {
+        if (app.clipboard_text) |text| {
+            _ = c.write(fd, text.ptr, text.len);
+        }
+    }
+    _ = c.close(fd);
+}
+
+fn dataSourceTarget(data: ?*anyopaque, data_source: ?*c.wl_data_source, mime_type: [*c]const u8) callconv(.c) void {
+    _ = data;
+    _ = data_source;
+    _ = mime_type;
+}
+
+fn dataSourceCancelled(data: ?*anyopaque, data_source: ?*c.wl_data_source) callconv(.c) void {
+    _ = data_source;
+    const app: *ginwaGTK = @ptrCast(@alignCast(data.?));
+    _ = c.wl_data_source_destroy(app.data_source);
+    app.data_source = null;
+}
+
+fn registryHandleGlobalRemove(user_data: ?*anyopaque, registry: ?*c.struct_wl_registry, name: u32) callconv(.c) void {
+    _ = user_data;
+    _ = registry;
+    std.debug.print("Removed global {}\n", .{name});
+}
+
 pub const ginwaGTK = struct {
     // wayland
     display: ?*c.wl_display = null,
@@ -54,10 +183,8 @@ pub const ginwaGTK = struct {
     mouse_quick_clink_interval: i64 = 500_000_000, // 500ms in nanoseconds
 
     // memory management
-    gpa: std.heap.GeneralPurposeAllocator(.{}) = .{},
-    memory: ?std.mem.Allocator = null,
-
-    allocatorbtn: std.mem.Allocator = undefined,
+    // gpa: std.heap.GeneralPurposeAllocator(.{}) = .{},
+    // memory: ?std.mem.Allocator = null,
 
     // ui component
     window: Widget = undefined,
@@ -73,150 +200,32 @@ pub const ginwaGTK = struct {
     next_key_repeat_time: i64 = 0,
 
     key_repeat_active: bool = false,
-    key_repeat_thread: ?std.Thread = null,
-    key_repeat_mutex: std.Thread.Mutex = .{},
+
     // cursor blinking
     cursor_visible: bool = true,
     last_cursor_blink: i64 = 0,
     cursor_blink_interval: i64 = 500_000_000, // 500ms in nanoseconds
 
-    pub const xdg_surface_listener = c.xdg_surface_listener{
-        .configure = xdgSurfaceConfigure,
-    };
-
-    pub const xdg_wm_base_listener = c.xdg_wm_base_listener{
-        .ping = xdgWmBasePing,
-    };
-
-    fn registryHandleGlobal(user_data: ?*anyopaque, registry: ?*c.struct_wl_registry, name: u32, interface: [*c]const u8, version: u32) callconv(.c) void {
-        const app: *ginwaGTK = @ptrCast(@alignCast(user_data));
-        std.debug.print("Found global {} of interface {s} version {}\n", .{ name, interface, version });
-
-        const iface = std.mem.span(interface);
-        if (std.mem.eql(u8, iface, "wl_compositor")) {
-            app.compositor = @ptrCast(c.wl_registry_bind(
-                registry,
-                name,
-                &c.wl_compositor_interface,
-                version,
-            ));
-            app.surface = c.wl_compositor_create_surface(app.compositor);
-        }
-
-        if (std.mem.eql(u8, iface, "xdg_wm_base")) {
-            app.xdg_wm_base = @ptrCast(c.wl_registry_bind(
-                registry,
-                name,
-                &c.xdg_wm_base_interface,
-                4,
-            ));
-            app.xdg_surface = c.xdg_wm_base_get_xdg_surface(app.xdg_wm_base, app.surface);
-            _ = c.xdg_surface_add_listener(app.xdg_surface, &xdg_surface_listener, app);
-
-            app.xdg_toplevel = c.xdg_surface_get_toplevel(app.xdg_surface);
-            _ = c.xdg_toplevel_add_listener(app.xdg_toplevel, &xdg_toplevel_listener, app);
-            _ = c.xdg_wm_base_add_listener(app.xdg_wm_base, &xdg_wm_base_listener, app);
-        }
-
-        if (std.mem.eql(u8, iface, "wl_shm")) {
-            app.shm = @ptrCast(c.wl_registry_bind(registry, name, &c.wl_shm_interface, 1));
-        }
-
-        if (std.mem.eql(u8, iface, "wl_seat")) {
-            app.wl_seat = @ptrCast(c.wl_registry_bind(registry, name, &c.wl_seat_interface, version));
-
-            _ = c.wl_seat_add_listener(app.wl_seat, &seat_listener, app);
-        }
-
-        if (std.mem.eql(u8, iface, "wl_data_device_manager")) {
-            app.data_device_manager = @ptrCast(c.wl_registry_bind(registry, name, &c.wl_data_device_manager_interface, version));
-
-            app.data_device = c.wl_data_device_manager_get_data_device(app.data_device_manager, app.wl_seat);
-
-            app.data_source = c.wl_data_device_manager_create_data_source(app.data_device_manager);
-
-            // Add text/plain MIME type
-            c.wl_data_source_offer(app.data_source, "text/plain");
-
-            // Set up listeners for data source
-            _ = c.wl_data_source_add_listener(app.data_source, &data_source_listener, app);
-
-            // Set the selection on the data device
-            c.wl_data_device_set_selection(app.data_device, app.data_source, 0);
-        }
-    }
-
-    pub const data_source_listener = c.wl_data_source_listener{
-        .target = dataSourceTarget,
-        .send = dataSourceSend,
-        .cancelled = dataSourceCancelled,
-    };
-
-    fn dataSourceSend(data: ?*anyopaque, data_source: ?*c.wl_data_source, mime_type: [*c]const u8, fd: i32) callconv(.c) void {
-        _ = data_source;
-        const app: *ginwaGTK = @ptrCast(@alignCast(data.?));
-        const mime_str = std.mem.span(mime_type);
-
-        if (std.mem.eql(u8, mime_str, "text/plain")) {
-            if (app.clipboard_text) |text| {
-                _ = c.write(fd, text.ptr, text.len);
-            }
-        }
-        _ = c.close(fd);
-    }
-
-    fn dataSourceTarget(data: ?*anyopaque, data_source: ?*c.wl_data_source, mime_type: [*c]const u8) callconv(.c) void {
-        _ = data;
-        _ = data_source;
-        _ = mime_type;
-    }
-
-    fn dataSourceCancelled(data: ?*anyopaque, data_source: ?*c.wl_data_source) callconv(.c) void {
-        _ = data_source;
-        const app: *ginwaGTK = @ptrCast(@alignCast(data.?));
-        _ = c.wl_data_source_destroy(app.data_source);
-        app.data_source = null;
-    }
-
-    fn registryHandleGlobalRemove(user_data: ?*anyopaque, registry: ?*c.struct_wl_registry, name: u32) callconv(.c) void {
-        _ = user_data;
-        _ = registry;
-        std.debug.print("Removed global {}\n", .{name});
-    }
-
-    pub fn init(self: *ginwaGTK) *ginwaGTK {
-        self.display = c.wl_display_connect(null);
-
-        const registry = c.wl_display_get_registry(self.display);
-
-        const registry_listener = c.wl_registry_listener{
-            .global = registryHandleGlobal,
-            .global_remove = registryHandleGlobalRemove,
-        };
-        _ = c.wl_registry_add_listener(registry, &registry_listener, self);
-        _ = c.wl_display_roundtrip(self.display);
-
-        // c.xdg_toplevel_sst_title(self.xdg_toplevel, self.win_title);
-        c.xdg_toplevel_set_title(self.xdg_toplevel, self.win_title);
-
-        return self;
-    }
-
-    pub fn drawWindow(self: *ginwaGTK, allo: std.mem.Allocator) *Widget {
-        var tk = allo.create(Widget) catch unreachable;
-        tk.allocator = allo;
-        tk.guid = "root";
-        tk.children = null;
-        tk.name = "parent_widget";
-        tk.orientation = .Column;
-        tk.widget_type = .Layout;
-        tk.padding = 8;
-        tk.gap = 8;
-
-        self.window = tk.*;
-
-        return tk;
-    }
+    // pub fn init(self: *ginwaGTK) *ginwaGTK {
+    //     self.display = c.wl_display_connect(null);
+    //
+    //     const registry = c.wl_display_get_registry(self.display);
+    //
+    //     const registry_listener = c.wl_registry_listener{
+    //         .global = registryHandleGlobal,
+    //         .global_remove = registryHandleGlobalRemove,
+    //     };
+    //     _ = c.wl_registry_add_listener(registry, &registry_listener, self);
+    //     _ = c.wl_display_roundtrip(self.display);
+    //
+    //     // c.xdg_toplevel_sst_title(self.xdg_toplevel, self.win_title);
+    //     c.xdg_toplevel_set_title(self.xdg_toplevel, self.win_title);
+    //
+    //     // default_gpa = self.gpa;
+    //     // default_allocator = self.allocator();
+    //
+    //     return self;
+    // }
 
     pub fn event_loop(app: *ginwaGTK) !void {
         return wr.renderEventLoop(app);
@@ -247,15 +256,17 @@ pub const ginwaGTK = struct {
         }
 
         _ = c.wl_display_disconnect(self.display);
-        _ = self.gpa.deinit();
+        // _ = self.gpa.deinit();
+
+        // _ = default_gpa.deinit();
     }
 
     pub fn allocator(self: *ginwaGTK) std.mem.Allocator {
-        return self.memory orelse self.gpa.allocator();
+        _ = self;
+        return default_allocator;
     }
 };
 
-// Tambahkan fungsi ini di widget.zig
 pub fn findWidgetAt(widget: *Widget, x: f64, y: f64) ?*Widget {
     const fx = @as(f64, @floatFromInt(widget.x));
     const fy = @as(f64, @floatFromInt(widget.y));
@@ -266,7 +277,6 @@ pub fn findWidgetAt(widget: *Widget, x: f64, y: f64) ?*Widget {
 
     if (!is_inside) return null;
 
-    // Cek children dulu (dari depan ke belakang, karena yang di depan menutupi yang di belakang)
     if (widget.children) |children| {
         var i = children.items.len;
         while (i > 0) {
@@ -277,7 +287,6 @@ pub fn findWidgetAt(widget: *Widget, x: f64, y: f64) ?*Widget {
         }
     }
 
-    // Jika tidak ada children yang match, return widget ini
     return widget;
 }
 fn xdgSurfaceConfigure(
@@ -372,10 +381,7 @@ pub const seat_listener = c.struct_wl_seat_listener{
 };
 
 /// rendering system
-pub const Orientation = enum {
-    Row,
-    Column,
-};
+pub const Orientation = enum { Row, Column, Stack };
 
 pub const WidgetType = enum { Button, Layout, Input, Text };
 
@@ -428,18 +434,21 @@ pub const Widget = struct {
     y: i32 = 0,
     width: i32 = 0,
     height: i32 = 0,
+
     padding: i32 = 0,
     input_text: []const u8 = "",
     placeholder: []const u8 = "",
     max_input_text_length: i32 = 0,
     min_input_text_length: i32 = 0,
     text: []const u8 = "",
+
     font_size: i32 = 11,
     font_type: [*:0]const u8 = "Arial",
     font_alignment: FontAlignment = .CenterLeft,
     font_color: u32 = 0xFFFFFFFF,
     font_weight: FontWeight = .Normal, // Added font weight
-    background_color: u32 = 0xFF333333,
+    //
+    background_color: u32 = 0x00000000,
     border_radius: i32 = 0,
     border_color: ?u32 = null,
     border_width: ?i32 = 0,
@@ -447,15 +456,13 @@ pub const Widget = struct {
     on_click: ?*const fn (*Widget, ?*anyopaque) void = null,
     click_data: ?*anyopaque = null,
 
-    allocator: std.mem.Allocator,
+    // allocator: std.mem.Allocator,
 
     cursor_position: usize = 0,
     selection_start: ?usize = null,
     selection_end: ?usize = null,
     selection_anchor: ?usize = null,
     scroll_offset: ?usize = null,
-    keyboard_last_state: u32 = 0, // enggak kepake kayaknya
-    keyboard_last_time: i64 = 0, // enggak kepake kayakany
 
     pub fn triggerClick(self: *Widget) void {
         if (self.on_click) |callback| {
@@ -470,7 +477,7 @@ pub const Widget = struct {
         }
 
         child.parent_guid = self.guid;
-        try self.children.?.append(self.allocator, child);
+        try self.children.?.append(default_allocator, child);
     }
 
     pub fn add_children(self: *Widget, children: anytype) !void {
@@ -484,9 +491,9 @@ pub const Widget = struct {
         if (self.children) |*list| {
             for (list.items) |child| {
                 child.deinit();
-                self.allocator.destroy(child);
+                default_allocator.destroy(child);
             }
-            list.deinit(self.allocator);
+            list.deinit(default_allocator);
         }
     }
 };

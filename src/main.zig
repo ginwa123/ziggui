@@ -8,9 +8,8 @@ const c = @import("c.zig").c;
 
 const button = @import("components/button.zig");
 const input = @import("components/input.zig");
-const row = @import("components/row.zig");
-const column = @import("components/column.zig");
 const text = @import("components/text.zig");
+const container = @import("components/container.zig");
 
 fn myButtonCallback(widget: *Widget, data: ?*anyopaque) void {
     _ = widget;
@@ -18,49 +17,47 @@ fn myButtonCallback(widget: *Widget, data: ?*anyopaque) void {
 }
 
 pub fn main() !void {
-    var uiToolkit: ui.ginwaGTK = .{
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const alllocator = gpa.allocator();
+
+    const uiToolkit = try alllocator.create(ui.ginwaGTK);
+    uiToolkit.* = .{
         .win_title = "ginwaGTK",
+        .window = .{
+            .name = "root",
+            .widget_type = .Layout,
+            .orientation = .Column,
+            .background_color = 0xFF333333,
+            .padding = 8,
+            .gap = 8,
+        },
     };
-    defer uiToolkit.free();
 
-    const allocator = uiToolkit.allocator();
-    std.debug.print("Init!\n", .{});
-    var tk = uiToolkit.init();
+    var tk = try ui.init(alllocator, uiToolkit);
+    defer tk.free();
 
-    tk.window = .{ .allocator = allocator };
-    tk.window.guid = "root";
-    tk.window.children = null;
-    tk.window.name = "parent_widget";
-    tk.window.orientation = .Column;
-    tk.window.widget_type = .Layout;
-    tk.window.padding = 8;
-    tk.window.gap = 8;
-
-    const input1 = try input.build(tk.window.allocator, .{
+    const input1 = try input.build(.{
         .name = "input",
         .max_input_text_length = 255,
         .placeholder = "placeholder",
     });
 
-    const rowCombineText = try row.build(tk.window.allocator, .{
+    const rowCombineText = try container.build(.{
         .name = "row",
-        .padding = 8,
         .background_color = 0xFF00FF00,
         .gap = 8,
+        .orientation = .Row,
     });
 
-    const text1 = try text.build(tk.window.allocator, .{
-        .name = "text",
-        .text = "its just a text",
-    });
+    const text1 = try text.build(.{ .name = "text", .text = "its just a text", .width = 100 });
 
-    const text2 = try text.build(tk.window.allocator, .{
+    const text2 = try text.build(.{
         .name = "text",
         .text = "text kedua",
     });
 
-
-    const input3 = try input.build(tk.window.allocator, .{
+    const input3 = try input.build(.{
         .name = "input",
         .width = 100,
     });
@@ -72,21 +69,18 @@ pub fn main() !void {
     );
 
     const btn1 = try button.build(
-        tk.window.allocator,
         .{ .name = "label1", .width = 100, .height = 100, .background_color = 0xFF1A1A1A, .label = "label1", .padding = 8 },
     );
     btn1.on_click = myButtonCallback;
     _ = try tk.window.add_child(btn1);
     //
     const btn2 = try button.build(
-        tk.window.allocator,
         .{ .name = "button1", .background_color = 0xFF3488FF, .label = "Gambar" },
     );
 
     _ = try tk.window.add_child(btn2);
 
     const btn3 = try button.build(
-        tk.window.allocator,
         .{
             .name = "button1",
             // green
@@ -97,16 +91,14 @@ pub fn main() !void {
 
     _ = try tk.window.add_child(btn3);
 
-    const rowwww = try row.build(tk.window.allocator, .{ .name = "column1", .padding = 8, .background_color = 0xFF1A1A1A, .gap = 14 });
+    const rowwww = try container.build(.{ .name = "column1", .padding = 8, .gap = 14, .orientation = .Row });
 
     const btnColumn11 = try button.build(
-        tk.window.allocator,
         .{ .name = "button1", .background_color = 0xFFFF7F00, .label = "orange", .border_radius = 8 },
     );
     _ = try rowwww.add_child(btnColumn11);
     //
     const btnColumn12 = try button.build(
-        uiToolkit.allocator(),
         .{
             .name = "button1",
             .background_color = 0xFFFFFF2D,
@@ -116,7 +108,6 @@ pub fn main() !void {
     _ = try rowwww.add_child(btnColumn12);
 
     const btnColumn13 = try button.build(
-        uiToolkit.allocator(),
         .{
             .name = "button1",
             .background_color = 0xFFFFFF2D,
@@ -126,11 +117,6 @@ pub fn main() !void {
     _ = try rowwww.add_child(btnColumn13);
 
     _ = try tk.window.add_child(rowwww);
-    // const new_buffer = tk.create_shm_buffer();
-    // defer c.wl_buffer_destroy(new_buffer);
-    // c.wl_surface_attach(tk.surface, new_buffer, 0, 0);
-    // c.wl_surface_damage(tk.surface, 0, 0, tk.win_width, tk.win_height);
-    // c.wl_surface_commit(tk.surface);
 
     std.debug.print("Event loop!\n", .{});
     try uiToolkit.event_loop();

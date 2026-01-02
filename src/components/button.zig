@@ -1,9 +1,7 @@
-
 const std = @import("std");
 const w = @import("../widget.zig");
 const random = @import("../random.zig");
 const Widget = w.Widget;
-
 
 pub const PropsButton = struct {
     name: []const u8 = "",
@@ -17,9 +15,10 @@ pub const PropsButton = struct {
     padding: i32 = 8,
 };
 
-pub fn build(alloc: std.mem.Allocator, props: PropsButton) !*Widget {
-    const widget = try alloc.create(Widget);
-    widget.* = .{ .guid = try random.randomId(alloc), .name = props.name, .width = props.width, .height = props.height, .text = props.label, .widget_type = .Button, .allocator = alloc, .background_color = props.background_color, .border_color = props.border_color, .border_width = props.border_width, .border_radius = props.border_radius };
+pub fn build( props: PropsButton) !*Widget {
+    const allocator = w.default_allocator;
+    const widget = try allocator.create(Widget);
+    widget.* = .{ .guid = try random.randomId(allocator), .name = props.name, .width = props.width, .height = props.height, .text = props.label, .widget_type = .Button, .background_color = props.background_color, .border_color = props.border_color, .border_width = props.border_width, .border_radius = props.border_radius };
 
     widget.padding = props.padding;
 

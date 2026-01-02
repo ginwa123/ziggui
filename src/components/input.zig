@@ -2,6 +2,7 @@ const std = @import("std");
 const w = @import("../widget.zig");
 const random = @import("../random.zig");
 const Widget = w.Widget;
+const ginwaGTK = w.ginwaGTK;
 
 
 // Input component constructor
@@ -12,30 +13,30 @@ pub const PropsInput = struct {
     placeholder: []const u8 = "",
     background_color: u32 = 0xFF222222,
     border_color: ?u32 = 0xFF555555,
-    border_width: ?i32 = 1,
-    border_radius: i32 = 4,
-    padding: i32 = 8,
+    border_width: ?i32 = 0,
+    border_radius: i32 = 0,
+    padding: i32 = 0,
     font_size: i32 = 14,
     font_color: u32 = 0xFFFFFFFF,
     max_input_text_length: i32 = 0,
     min_input_text_length: i32 = 0,
 };
 
-pub fn build(alloc: std.mem.Allocator, props: PropsInput) !*Widget {
-    const widget = try alloc.create(Widget);
+pub fn build(props: PropsInput) !*Widget {
+    const allocator = w.default_allocator;
+    const widget = try allocator.create(Widget);
 
     // Initialize empty input text
-    const initial_text = try alloc.alloc(u8, 0);
+    const initial_text = try allocator.alloc(u8, 0);
 
     widget.* = .{
-        .guid = try random.randomId(alloc),
+        .guid = try random.randomId(allocator),
         .name = props.name,
         .width = props.width,
         .height = props.height,
         .input_text = initial_text,
         .placeholder = props.placeholder,
         .widget_type = .Input,
-        .allocator = alloc,
         .background_color = props.background_color,
         .border_color = props.border_color,
         .border_width = props.border_width,

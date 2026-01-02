@@ -17,7 +17,8 @@ pub const PropsText = struct {
     background_color: u32 = 0x00000000, // Transparent by default
 };
 
-pub fn build(alloc: std.mem.Allocator, props: PropsText) !*Widget {
+pub fn build(props: PropsText) !*Widget {
+    const alloc = w.default_allocator;
     const widget = try alloc.create(Widget);
 
     // Initialize empty input text
@@ -28,7 +29,6 @@ pub fn build(alloc: std.mem.Allocator, props: PropsText) !*Widget {
         .height = props.height,
         .text = props.text,
         .widget_type = .Text,
-        .allocator = alloc,
         .font_size = props.font_size,
         .font_color = props.font_color,
         .font_alignment = .CenterLeft,
