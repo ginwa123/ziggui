@@ -165,7 +165,7 @@ pub const ginwaGTK = struct {
     clipboard_text: ?[]u8 = null,
 
     // window properties
-    win_title: [*c]const u8,
+    win_title: [*c]const u8 = "App",
     win_width: i32 = 800,
     win_height: i32 = 600,
     layout_initialized: bool = false,
@@ -205,27 +205,6 @@ pub const ginwaGTK = struct {
     cursor_visible: bool = true,
     last_cursor_blink: i64 = 0,
     cursor_blink_interval: i64 = 500_000_000, // 500ms in nanoseconds
-
-    // pub fn init(self: *ginwaGTK) *ginwaGTK {
-    //     self.display = c.wl_display_connect(null);
-    //
-    //     const registry = c.wl_display_get_registry(self.display);
-    //
-    //     const registry_listener = c.wl_registry_listener{
-    //         .global = registryHandleGlobal,
-    //         .global_remove = registryHandleGlobalRemove,
-    //     };
-    //     _ = c.wl_registry_add_listener(registry, &registry_listener, self);
-    //     _ = c.wl_display_roundtrip(self.display);
-    //
-    //     // c.xdg_toplevel_sst_title(self.xdg_toplevel, self.win_title);
-    //     c.xdg_toplevel_set_title(self.xdg_toplevel, self.win_title);
-    //
-    //     // default_gpa = self.gpa;
-    //     // default_allocator = self.allocator();
-    //
-    //     return self;
-    // }
 
     pub fn event_loop(app: *ginwaGTK) !void {
         return wr.renderEventLoop(app);
@@ -422,7 +401,7 @@ pub const FontAlignment = enum {
 pub const Widget = struct {
     guid: []const u8 = "",
     parent_guid: []const u8 = "",
-    name: []const u8 = "",
+    name: []const u8 = "root",
     orientation: ?Orientation = null,
 
     gap: i32 = 0,

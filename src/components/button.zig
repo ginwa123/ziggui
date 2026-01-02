@@ -15,7 +15,7 @@ pub const PropsButton = struct {
     padding: i32 = 8,
 };
 
-pub fn build( props: PropsButton) !*Widget {
+pub fn build(props: PropsButton) !*Widget {
     const allocator = w.default_allocator;
     const widget = try allocator.create(Widget);
     widget.* = .{ .guid = try random.randomId(allocator), .name = props.name, .width = props.width, .height = props.height, .text = props.label, .widget_type = .Button, .background_color = props.background_color, .border_color = props.border_color, .border_width = props.border_width, .border_radius = props.border_radius };

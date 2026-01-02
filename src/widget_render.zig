@@ -400,6 +400,23 @@ fn measureLayout(widget: *Widget) struct { width: i32, height: i32 } {
             max_w = @max(max_w, child_w);
         }
         total_w += max_w;
+    } else if (widget.orientation == .Stack) {
+        var max_w: i32 = 0;
+        var max_h: i32 = 0;
+        for (children) |child| {
+            var child_w = child.width;
+            var child_h = child.height;
+            if (child.widget_type == .Layout and (child_w == 0 or child_h == 0)) {
+                const measured = measureLayout(child);
+                if (child_w == 0) child_w = measured.width;
+                if (child_h == 0) child_h = measured.height;
+            }
+
+            max_w = @max(max_w, child_w);
+            max_h = @max(max_h, child_h);
+        }
+        total_w += max_w;
+        total_h += max_h;
     }
 
     return .{ .width = total_w, .height = total_h };
@@ -470,6 +487,16 @@ pub fn layoutWidget(widget: *Widget, avail_w: i32, avail_h: i32) void {
                     if (idx + 1 < child_count) {
                         cur_y += widget.gap;
                     }
+                }
+            } else if (widget.orientation == .Stack) {
+                for (children.items) |child| {
+                    const child_w = @min(child.width, inner_w);
+                    const child_h = @min(child.height, inner_h);
+
+                    child.x = widget.x + widget.padding;
+                    child.y = widget.y + widget.padding;
+
+                    layoutWidget(child, child_w, child_h);
                 }
             }
         } else {

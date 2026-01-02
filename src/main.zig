@@ -23,9 +23,7 @@ pub fn main() !void {
 
     const uiToolkit = try alllocator.create(ui.ginwaGTK);
     uiToolkit.* = .{
-        .win_title = "ginwaGTK",
         .window = .{
-            .name = "root",
             .widget_type = .Layout,
             .orientation = .Column,
             .background_color = 0xFF333333,
@@ -118,8 +116,32 @@ pub fn main() !void {
 
     _ = try tk.window.add_child(rowwww);
 
+    // Test Stack orientation - children will overlap each other
+    const stackContainer = try container.build(.{
+        .name = "stack",
+        .padding = 8,
+        .gap = 8,
+        .orientation = .Stack,
+        .background_color = 0xFF800080, // Purple background
+        .width = 200,
+        .height = 150,
+    });
+
+    const stackBtn1 = try button.build(
+        .{ .name = "stack-btn-1", .background_color = 0xFFFF0000, .label = "Bottom", .width = 180, .height = 130 },
+    );
+    const stackBtn2 = try button.build(
+        .{ .name = "stack-btn-2", .background_color = 0xFF00FF00, .label = "Middle", .width = 160, .height = 110 },
+    );
+    const stackBtn3 = try button.build(
+        .{ .name = "stack-btn-3", .background_color = 0xFF0000FF, .label = "Top", .width = 140, .height = 90 },
+    );
+
+    _ = try stackContainer.add_children(.{ stackBtn1, stackBtn2, stackBtn3 });
+    _ = try tk.window.add_child(stackContainer);
+
     std.debug.print("Event loop!\n", .{});
-    try uiToolkit.event_loop();
+    try tk.event_loop();
 }
 
 test "simple test" {
