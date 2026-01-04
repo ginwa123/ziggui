@@ -210,6 +210,32 @@ fn pointer_button(
             if (w.findWidgetAt(&app.window, app.pointer_x, app.pointer_y)) |clicked_widget| {
                 std.debug.print("Clicked on widget: {s}\n", .{clicked_widget.name});
 
+                // Check if clicked on eye icon of a password input
+                if (clicked_widget.widget_type == .Input and
+                    clicked_widget.input_text_type == .Password ) {
+
+                    // Calculate eye icon bounds
+                    const icon_size: i32 = 16;
+                    const icon_padding: i32 = 10;
+                    const icon_x = clicked_widget.x + clicked_widget.width - icon_size - icon_padding;
+                    const icon_y = clicked_widget.y + @divTrunc(clicked_widget.height - icon_size, 2);
+                    const icon_x2 = icon_x + icon_size;
+                    const icon_y2 = icon_y + icon_size;
+
+                    // Check if click is within eye icon bounds
+                    if (app.pointer_x >= @as(f64, @floatFromInt(icon_x)) and
+                        app.pointer_x <= @as(f64, @floatFromInt(icon_x2)) and
+                        app.pointer_y >= @as(f64, @floatFromInt(icon_y)) and
+                        app.pointer_y <= @as(f64, @floatFromInt(icon_y2))) {
+
+                        // Toggle password visibility
+                        clicked_widget.password_visible = !clicked_widget.password_visible;
+                        std.debug.print("Password visibility toggled: {}\n", .{clicked_widget.password_visible});
+                        wr.redraw(app);
+                        return;  // Don't trigger input focus when clicking eye icon
+                    }
+                }
+
                 if (clicked_widget.widget_type == .Input) {
                     app.focused_widget = clicked_widget;
                     app.cursor_visible = true;

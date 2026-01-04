@@ -20,21 +20,27 @@ pub const PropsInput = struct {
     font_color: u32 = 0xFFFFFFFF,
     max_input_text_length: i32 = 0,
     min_input_text_length: i32 = 0,
+    input_text: []const u8 = "",
+    input_text_type: ?w.InputTextType = null,
 };
 
 pub fn build(props: PropsInput) !*Widget {
     const allocator = w.default_allocator;
     const widget = try allocator.create(Widget);
 
-    // Initialize empty input text
-    const initial_text = try allocator.alloc(u8, 0);
+    // Allocate and duplicate input text so we own the memory
+    const input_text = if (props.input_text.len > 0)
+        try allocator.dupe(u8, props.input_text)
+    else
+        "";
 
     widget.* = .{
         .guid = try random.randomId(allocator),
         .name = props.name,
         .width = props.width,
         .height = props.height,
-        .input_text = initial_text,
+        .input_text = input_text,
+        .input_text_type = props.input_text_type,
         .placeholder = props.placeholder,
         .widget_type = .Input,
         .background_color = props.background_color,

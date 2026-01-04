@@ -35,6 +35,34 @@ pub fn main() !void {
     var tk = try ui.init(alllocator, uiToolkit);
     defer tk.free();
 
+
+    const inputText = "init input text";
+    const inputUsername = try input.build(.{
+        .name = "inputUsername",
+        .max_input_text_length = 255,
+        .placeholder = "username",
+        .padding = 8,
+        .input_text_type = .Text,
+        .input_text = inputText,
+    });
+
+    const inputPassword = try input.build(.{
+        .name = "inputPassword",
+        .max_input_text_length = 255,
+        .placeholder = "password",
+        .padding = 8,
+        .input_text_type = .Password
+    });
+
+    const columnLogin = try container.build(.{
+        .name = "columnLogin",
+        .padding = 8,
+        .gap = 8,
+        .orientation = .Column,
+    });
+    _ = try columnLogin.add_children(.{ inputUsername, inputPassword });
+    _ = try tk.window.add_child(columnLogin);
+
     const input1 = try input.build(.{
         .name = "input",
         .max_input_text_length = 255,

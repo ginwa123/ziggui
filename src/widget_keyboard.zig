@@ -101,7 +101,7 @@ fn keyboard_key(
 
                 // Copy text to clipboard
                 if (app.ctrl_pressed and key == KEY_C and state == c.WL_KEYBOARD_KEY_STATE_PRESSED) {
-                    if (widget.input_text.len > 0) {
+                    if (widget.input_text.len > 0 and widget.input_text_type != .Password) {
                         const start_selection = @min(widget.selection_start.?, widget.selection_end.?);
                         const end_selection = @max(widget.selection_start.?, widget.selection_end.?);
 

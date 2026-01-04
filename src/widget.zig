@@ -399,6 +399,13 @@ pub const FontAlignment = enum {
     }
 };
 
+pub const InputTextType = enum {
+    Text,
+    Password,
+    Number,
+    Email,
+};
+
 pub const Widget = struct {
     guid: []const u8 = "",
     parent_guid: []const u8 = "",
@@ -417,6 +424,7 @@ pub const Widget = struct {
 
     padding: i32 = 0,
     input_text: []const u8 = "",
+    input_text_type: ?InputTextType = null,
     placeholder: []const u8 = "",
     max_input_text_length: i32 = 0,
     min_input_text_length: i32 = 0,
@@ -427,6 +435,7 @@ pub const Widget = struct {
     font_alignment: FontAlignment = .CenterLeft,
     font_color: u32 = 0xFFFFFFFF,
     font_weight: FontWeight = .Normal, // Added font weight
+    password_visible: bool = false,
 
     background_color: u32 = 0x00000000,
     backround_is_hovered: bool = false,

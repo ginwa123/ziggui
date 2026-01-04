@@ -6,6 +6,63 @@ const c = w.c;
 const Widget = w.Widget;
 const ginwaGTK = w.ginwaGTK;
 
+fn renderEyeIcon(
+    widget: *Widget,
+    pixels: [*]u32,
+    pitch: usize,
+    buf_w: usize,
+    buf_h: usize,
+) void {
+    // Only show eye icon for password inputs
+    if (widget.widget_type != .Input or
+        widget.input_text_type != .Password)
+    {
+        return;
+    }
+
+    const stride = @as(i32, @intCast(pitch * 4));
+    const surface = c.cairo_image_surface_create_for_data(
+        @ptrCast(pixels),
+        c.CAIRO_FORMAT_ARGB32,
+        @as(i32, @intCast(buf_w)),
+        @as(i32, @intCast(buf_h)),
+        stride,
+    );
+    defer c.cairo_surface_destroy(surface);
+
+    const cr = c.cairo_create(surface);
+    defer c.cairo_destroy(cr);
+
+    // Position eye icon on the right side of the input
+    const icon_size: i32 = 16;
+    const icon_padding: i32 = 10;
+    const icon_x = widget.x + widget.width - icon_size - icon_padding;
+    const icon_y = widget.y + @divTrunc(widget.height - icon_size, 2); // Fixed division
+    const center_x = icon_x + @divTrunc(icon_size, 2); // Fixed division
+    const center_y = icon_y + @divTrunc(icon_size, 2); // Fixed division
+    const radius = @divTrunc(icon_size, 2) - 2;
+
+    // Eye outline (circle)
+    c.cairo_set_line_width(cr, 1.5);
+    c.cairo_set_source_rgba(cr, 0.7, 0.7, 0.7, 0.8); // Gray color
+    c.cairo_arc(cr, @as(f64, @floatFromInt(center_x)), @as(f64, @floatFromInt(center_y)), @as(f64, @floatFromInt(radius)), 0, 2 * std.math.pi);
+    c.cairo_stroke(cr);
+
+    if (widget.password_visible) {
+        // Password is VISIBLE - draw horizontal line through the eye
+        c.cairo_set_line_width(cr, 1.5);
+        c.cairo_set_source_rgba(cr, 0.7, 0.7, 0.7, 0.8);
+        c.cairo_move_to(cr, @as(f64, @floatFromInt(icon_x + 3)), @as(f64, @floatFromInt(center_y)));
+        c.cairo_line_to(cr, @as(f64, @floatFromInt(icon_x + icon_size - 3)), @as(f64, @floatFromInt(center_y)));
+        c.cairo_stroke(cr);
+    } else {
+        // Password is HIDDEN - draw pupil (filled circle)
+        c.cairo_set_source_rgba(cr, 0.7, 0.7, 0.7, 0.8);
+        c.cairo_arc(cr, @as(f64, @floatFromInt(center_x)), @as(f64, @floatFromInt(center_y)), 3, 0, 2 * std.math.pi);
+        c.cairo_fill(cr);
+    }
+}
+
 pub fn renderText(
     widget: *Widget,
     pixels: [*]u32,
@@ -37,7 +94,7 @@ pub fn renderText(
     defer c.g_object_unref(layout);
 
     // Use input_text for Input widgets, otherwise use text
-    const display_text = if (widget.widget_type == .Input)
+    var display_text = if (widget.widget_type == .Input)
         if (widget.input_text.len > 0)
             widget.input_text
         else if (widget.placeholder.len > 0)
@@ -47,6 +104,16 @@ pub fn renderText(
     else
         widget.text;
 
+    const text_to_render = if (widget.widget_type == .Input and widget.input_text.len > 0 and widget.input_text_type == .Password and widget.password_visible == false)
+        // Create asterisks string for password display
+        blk: {
+            const password_len = widget.input_text.len;
+            var password_buf: [256]u8 = undefined;
+            @memset(password_buf[0..password_len], '*');
+            break :blk password_buf[0..password_len];
+        } else display_text;
+
+    display_text = text_to_render;
     c.pango_layout_set_text(layout, display_text.ptr, @as(i32, @intCast(display_text.len)));
 
     // Create font description with size
@@ -182,7 +249,6 @@ pub fn renderWidget(
     // Only render background if not transparent (alpha > 0)
     const bg_alpha = (widget.background_color >> 24) & 0xFF;
     if (bg_alpha > 0) {
-
         var current_bg_color = widget.background_color;
         if (widget.backround_is_hovered) {
             current_bg_color = widget.background_hover_color orelse widget.background_color;
@@ -243,6 +309,8 @@ pub fn renderWidget(
     // Render text with app reference
     const pitch_bytes = pitch * 4;
     renderText(widget, pixels, pitch_bytes, buf_w, buf_h, app);
+
+    renderEyeIcon(widget, pixels, pitch, buf_w, buf_h);
 
     // Render children
     if (widget.children) |children| {
