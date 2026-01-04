@@ -13,6 +13,11 @@ fn renderEyeIcon(
     buf_w: usize,
     buf_h: usize,
 ) void {
+    _ = pixels;
+    _ = pitch;
+    _ = buf_w;
+    _ = buf_h;
+    // currentlyd disabled
     // Only show eye icon for password inputs
     if (widget.widget_type != .Input or
         widget.input_text_type != .Password)
@@ -20,47 +25,49 @@ fn renderEyeIcon(
         return;
     }
 
-    const stride = @as(i32, @intCast(pitch * 4));
-    const surface = c.cairo_image_surface_create_for_data(
-        @ptrCast(pixels),
-        c.CAIRO_FORMAT_ARGB32,
-        @as(i32, @intCast(buf_w)),
-        @as(i32, @intCast(buf_h)),
-        stride,
-    );
-    defer c.cairo_surface_destroy(surface);
-
-    const cr = c.cairo_create(surface);
-    defer c.cairo_destroy(cr);
-
-    // Position eye icon on the right side of the input
-    const icon_size: i32 = 16;
-    const icon_padding: i32 = 10;
-    const icon_x = widget.x + widget.width - icon_size - icon_padding;
-    const icon_y = widget.y + @divTrunc(widget.height - icon_size, 2); // Fixed division
-    const center_x = icon_x + @divTrunc(icon_size, 2); // Fixed division
-    const center_y = icon_y + @divTrunc(icon_size, 2); // Fixed division
-    const radius = @divTrunc(icon_size, 2) - 2;
-
-    // Eye outline (circle)
-    c.cairo_set_line_width(cr, 1.5);
-    c.cairo_set_source_rgba(cr, 0.7, 0.7, 0.7, 0.8); // Gray color
-    c.cairo_arc(cr, @as(f64, @floatFromInt(center_x)), @as(f64, @floatFromInt(center_y)), @as(f64, @floatFromInt(radius)), 0, 2 * std.math.pi);
-    c.cairo_stroke(cr);
-
-    if (widget.password_visible) {
-        // Password is VISIBLE - draw horizontal line through the eye
-        c.cairo_set_line_width(cr, 1.5);
-        c.cairo_set_source_rgba(cr, 0.7, 0.7, 0.7, 0.8);
-        c.cairo_move_to(cr, @as(f64, @floatFromInt(icon_x + 3)), @as(f64, @floatFromInt(center_y)));
-        c.cairo_line_to(cr, @as(f64, @floatFromInt(icon_x + icon_size - 3)), @as(f64, @floatFromInt(center_y)));
-        c.cairo_stroke(cr);
-    } else {
-        // Password is HIDDEN - draw pupil (filled circle)
-        c.cairo_set_source_rgba(cr, 0.7, 0.7, 0.7, 0.8);
-        c.cairo_arc(cr, @as(f64, @floatFromInt(center_x)), @as(f64, @floatFromInt(center_y)), 3, 0, 2 * std.math.pi);
-        c.cairo_fill(cr);
-    }
+    return;
+    //
+    // const stride = @as(i32, @intCast(pitch * 4));
+    // const surface = c.cairo_image_surface_create_for_data(
+    //     @ptrCast(pixels),
+    //     c.CAIRO_FORMAT_ARGB32,
+    //     @as(i32, @intCast(buf_w)),
+    //     @as(i32, @intCast(buf_h)),
+    //     stride,
+    // );
+    // defer c.cairo_surface_destroy(surface);
+    //
+    // const cr = c.cairo_create(surface);
+    // defer c.cairo_destroy(cr);
+    //
+    // // Position eye icon on the right side of the input
+    // const icon_size: i32 = 16;
+    // const icon_padding: i32 = 10;
+    // const icon_x = widget.x + widget.width - icon_size - icon_padding;
+    // const icon_y = widget.y + @divTrunc(widget.height - icon_size, 2); // Fixed division
+    // const center_x = icon_x + @divTrunc(icon_size, 2); // Fixed division
+    // const center_y = icon_y + @divTrunc(icon_size, 2); // Fixed division
+    // const radius = @divTrunc(icon_size, 2) - 2;
+    //
+    // // Eye outline (circle)
+    // c.cairo_set_line_width(cr, 1.5);
+    // c.cairo_set_source_rgba(cr, 0.7, 0.7, 0.7, 0.8); // Gray color
+    // c.cairo_arc(cr, @as(f64, @floatFromInt(center_x)), @as(f64, @floatFromInt(center_y)), @as(f64, @floatFromInt(radius)), 0, 2 * std.math.pi);
+    // c.cairo_stroke(cr);
+    //
+    // if (widget.password_visible) {
+    //     // Password is VISIBLE - draw horizontal line through the eye
+    //     c.cairo_set_line_width(cr, 1.5);
+    //     c.cairo_set_source_rgba(cr, 0.7, 0.7, 0.7, 0.8);
+    //     c.cairo_move_to(cr, @as(f64, @floatFromInt(icon_x + 3)), @as(f64, @floatFromInt(center_y)));
+    //     c.cairo_line_to(cr, @as(f64, @floatFromInt(icon_x + icon_size - 3)), @as(f64, @floatFromInt(center_y)));
+    //     c.cairo_stroke(cr);
+    // } else {
+    //     // Password is HIDDEN - draw pupil (filled circle)
+    //     c.cairo_set_source_rgba(cr, 0.7, 0.7, 0.7, 0.8);
+    //     c.cairo_arc(cr, @as(f64, @floatFromInt(center_x)), @as(f64, @floatFromInt(center_y)), 3, 0, 2 * std.math.pi);
+    //     c.cairo_fill(cr);
+    // }
 }
 
 pub fn renderText(

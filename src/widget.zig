@@ -423,6 +423,12 @@ pub const Widget = struct {
     height: i32 = 0,
 
     padding: i32 = 0,
+    padding_left: ?i32 = null,
+    padding_right: ?i32 = null,
+    padding_top: ?i32 = null,
+    padding_bottom: ?i32 = null,
+
+
     input_text: []const u8 = "",
     input_text_type: ?InputTextType = null,
     placeholder: []const u8 = "",
@@ -447,7 +453,7 @@ pub const Widget = struct {
     on_click: ?*const fn (*Widget, ?*anyopaque) void = null,
     click_data: ?*anyopaque = null,
 
-    // allocator: std.mem.Allocator,
+    on_input_text_change: ?*const fn (input_text: []const u8, data: ?*anyopaque) void = null,
 
     cursor_position: usize = 0,
     selection_start: ?usize = null,
@@ -458,9 +464,15 @@ pub const Widget = struct {
     on_click_backgroud_is_hovered: bool = false,
     on_click_hover_color: ?u32 = null,
 
-    pub fn triggerClick(self: *Widget) void {
+    pub fn trigger_click(self: *Widget) void {
         if (self.on_click) |callback| {
             callback(self, self.click_data);
+        }
+    }
+
+    pub fn trigger_input_text_change(self: *Widget) void {
+        if (self.on_input_text_change) |callback| {
+            callback(self.input_text, self.click_data);
         }
     }
 

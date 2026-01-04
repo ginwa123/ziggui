@@ -16,6 +16,13 @@ fn myButtonCallback(widget: *Widget, data: ?*anyopaque) void {
     _ = data;
 }
 
+fn onInputTextChange(input_text: []const u8, data: ?*anyopaque) void {
+    _ = data;
+
+
+    std.debug.print("onInputTextChange: {s}\n", .{input_text});
+}
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
@@ -45,6 +52,8 @@ pub fn main() !void {
         .input_text_type = .Text,
         .input_text = inputText,
     });
+
+    inputUsername.on_input_text_change = onInputTextChange;
 
     const inputPassword = try input.build(.{
         .name = "inputPassword",

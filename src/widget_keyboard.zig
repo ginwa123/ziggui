@@ -87,8 +87,6 @@ fn keyboard_key(
 
     std.debug.print("Keyboard key: {d}, state: {d}\n", .{ key, state });
 
-    // state 1 = pressed, 0 = released
-
     if (state == c.WL_KEYBOARD_KEY_STATE_PRESSED) {
         app.pressed_key = key;
         app.key_repeat_active = true;
@@ -117,13 +115,11 @@ fn keyboard_key(
                         app.clipboard_text = new_clipboard;
 
                         std.debug.print("Copied text to clipboard: {s}\n", .{selection_text});
-                        wr.redraw(app);
-                        return;
                     }
                 }
 
                 // Paste text from clipboard
-                if (app.ctrl_pressed and key == KEY_V and state == c.WL_KEYBOARD_KEY_STATE_PRESSED) {
+                else if (app.ctrl_pressed and key == KEY_V and state == c.WL_KEYBOARD_KEY_STATE_PRESSED) {
                     if (app.clipboard_text) |text| {
                         const has_selection = widget.selection_start != null and widget.selection_end != null;
                         if (has_selection) {
@@ -138,12 +134,13 @@ fn keyboard_key(
                             }
                             insertCharAtCursor(widget, char, app.allocator());
                         }
-                        wr.redraw(app);
                         return;
                     }
+                } else {
+                    handleInputKey(app, widget, key, app.shift_pressed, app.ctrl_pressed, app.allocator());
                 }
 
-                handleInputKey(app, widget, key, app.shift_pressed, app.ctrl_pressed, app.allocator());
+                widget.trigger_input_text_change();
 
                 // Trigger redraw
                 wr.redraw(app);

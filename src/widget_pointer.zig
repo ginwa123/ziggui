@@ -293,7 +293,7 @@ fn pointer_button(
                     app.mouse_click_count = 0;
                 }
 
-                clicked_widget.triggerClick();
+                clicked_widget.trigger_click();
             } else {
                 app.focused_widget = null;
             }
