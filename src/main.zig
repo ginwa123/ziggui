@@ -39,6 +39,7 @@ pub fn main() !void {
         .name = "input",
         .max_input_text_length = 255,
         .placeholder = "placeholder",
+        .padding = 8,
     });
 
     const rowCombineText = try container.build(.{
@@ -50,9 +51,10 @@ pub fn main() !void {
 
     const text1 = try text.build(.{ .name = "text", .text = "its just a text", .width = 100 });
 
-    const text2 = try text.build(.{
+    const btnHoverOnCLick = try button.build(.{
         .name = "text",
-        .text = "text kedua",
+        .label = "TOmbol",
+        .on_click_hover_color = 0xFF00FF00,
     });
 
     const input3 = try input.build(.{
@@ -60,7 +62,7 @@ pub fn main() !void {
         .width = 100,
     });
 
-    _ = try rowCombineText.add_children(.{ text1, text2, input3 });
+    _ = try rowCombineText.add_children(.{ text1, btnHoverOnCLick, input3 });
 
     _ = try tk.window.add_children(
         .{ input1, rowCombineText },

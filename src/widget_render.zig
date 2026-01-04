@@ -99,10 +99,14 @@ pub fn renderText(
         else => {},
     }
 
-    const alpha = @as(f64, @floatFromInt((widget.font_color >> 24) & 0xFF)) / 255.0;
-    const red = @as(f64, @floatFromInt((widget.font_color >> 16) & 0xFF)) / 255.0;
-    const green = @as(f64, @floatFromInt((widget.font_color >> 8) & 0xFF)) / 255.0;
-    const blue = @as(f64, @floatFromInt(widget.font_color & 0xFF)) / 255.0;
+    // Use gray color for placeholder text, otherwise use font_color
+    const is_placeholder = widget.widget_type == .Input and widget.input_text.len == 0 and widget.placeholder.len > 0;
+    const text_color: u32 = if (is_placeholder) 0xFF888888 else widget.font_color;
+
+    const alpha = @as(f64, @floatFromInt((text_color >> 24) & 0xFF)) / 255.0;
+    const red = @as(f64, @floatFromInt((text_color >> 16) & 0xFF)) / 255.0;
+    const green = @as(f64, @floatFromInt((text_color >> 8) & 0xFF)) / 255.0;
+    const blue = @as(f64, @floatFromInt(text_color & 0xFF)) / 255.0;
 
     c.cairo_set_source_rgba(cr, red, green, blue, alpha);
     c.cairo_move_to(cr, text_x, text_y);
@@ -183,6 +187,11 @@ pub fn renderWidget(
         if (widget.backround_is_hovered) {
             current_bg_color = widget.background_hover_color orelse widget.background_color;
         }
+
+        if (widget.on_click_backgroud_is_hovered) {
+            current_bg_color = widget.on_click_hover_color orelse widget.background_color;
+        }
+
         if (widget.border_radius > 0) {
             renderRoundedWidget(
                 pixels,

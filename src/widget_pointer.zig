@@ -103,7 +103,6 @@ fn pointer_motion(
         hovered_widget.backround_is_hovered = true;
         wr.redraw(app);
     }
-
 }
 
 fn calculateCursorPositionFromMouse(widget: *Widget, mouse_x: f64, mouse_y: f64) void {
@@ -253,6 +252,14 @@ fn pointer_button(
                     // wr.redraw(app);
 
                     std.debug.print("Input focused: {s}, cursor at: {}\n", .{ clicked_widget.name, clicked_widget.cursor_position });
+                } else if (clicked_widget.widget_type == .Button) {
+                    clicked_widget.on_click_backgroud_is_hovered = true;
+                    app.mouse_dragging = false;
+                    app.mouse_drag_start_widget = null;
+                    app.mouse_click_count = 0;
+
+                    // redraw ui to show the change
+                    wr.redraw(app);
                 } else {
                     app.focused_widget = null;
                     app.mouse_dragging = false;
@@ -274,6 +281,10 @@ fn pointer_button(
         if (button == 0x110) { // left click
             app.mouse_dragging = false;
             app.mouse_drag_start_widget = null;
+
+            if (w.findWidgetAt(&app.window, app.pointer_x, app.pointer_y)) |clicked_widget| {
+                clicked_widget.on_click_backgroud_is_hovered = false;
+            }
         }
     }
 

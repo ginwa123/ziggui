@@ -446,6 +446,9 @@ pub const Widget = struct {
     selection_anchor: ?usize = null,
     scroll_offset: ?usize = null,
 
+    on_click_backgroud_is_hovered: bool = false,
+    on_click_hover_color: ?u32 = null,
+
     pub fn triggerClick(self: *Widget) void {
         if (self.on_click) |callback| {
             callback(self, self.click_data);
