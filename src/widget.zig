@@ -464,6 +464,31 @@ pub const Widget = struct {
     on_click_backgroud_is_hovered: bool = false,
     on_click_hover_color: ?u32 = null,
 
+    // Helper methods for directional padding
+    pub fn getPaddingLeft(self: *const Widget) i32 {
+        return self.padding_left orelse self.padding;
+    }
+
+    pub fn getPaddingRight(self: *const Widget) i32 {
+        return self.padding_right orelse self.padding;
+    }
+
+    pub fn getPaddingTop(self: *const Widget) i32 {
+        return self.padding_top orelse self.padding;
+    }
+
+    pub fn getPaddingBottom(self: *const Widget) i32 {
+        return self.padding_bottom orelse self.padding;
+    }
+
+    pub fn getPaddingHorizontal(self: *const Widget) i32 {
+        return self.getPaddingLeft() + self.getPaddingRight();
+    }
+
+    pub fn getPaddingVertical(self: *const Widget) i32 {
+        return self.getPaddingTop() + self.getPaddingBottom();
+    }
+
     pub fn trigger_click(self: *Widget) void {
         if (self.on_click) |callback| {
             callback(self, self.click_data);

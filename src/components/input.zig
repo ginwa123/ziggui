@@ -16,6 +16,10 @@ pub const PropsInput = struct {
     border_width: ?i32 = 0,
     border_radius: i32 = 0,
     padding: i32 = 0,
+    padding_left: ?i32 = null,
+    padding_right: ?i32 = null,
+    padding_top: ?i32 = null,
+    padding_bottom: ?i32 = null,
     font_size: i32 = 14,
     font_color: u32 = 0xFFFFFFFF,
     max_input_text_length: i32 = 0,
@@ -53,6 +57,10 @@ pub fn build(props: PropsInput) !*Widget {
         .font_alignment = .CenterLeft,
         .max_input_text_length = props.max_input_text_length,
         .min_input_text_length = props.min_input_text_length,
+        .padding_left = props.padding_left,
+        .padding_right = props.padding_right,
+        .padding_top = props.padding_top,
+        .padding_bottom = props.padding_bottom,
     };
 
     return widget;

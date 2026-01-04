@@ -142,7 +142,7 @@ pub fn renderText(
     if (widget.widget_type == .Input) {
         c.pango_layout_set_width(layout, -1);
     } else {
-        c.pango_layout_set_width(layout, (widget.width - 2 * widget.padding) * c.PANGO_SCALE);
+        c.pango_layout_set_width(layout, (widget.width - widget.getPaddingHorizontal()) * c.PANGO_SCALE);
         c.pango_layout_set_wrap(layout, c.PANGO_WRAP_WORD_CHAR);
     }
 
@@ -154,12 +154,12 @@ pub fn renderText(
 
     const scroll_amount: usize = widget.scroll_offset orelse 0;
 
-    const text_x: f64 = @as(f64, @floatFromInt(widget.x + widget.padding)) -
+    const text_x: f64 = @as(f64, @floatFromInt(widget.x + widget.getPaddingLeft())) -
         @as(f64, @floatFromInt(scroll_amount));
 
-    var text_y: f64 = @floatFromInt(widget.y + widget.padding);
+    var text_y: f64 = @floatFromInt(widget.y + widget.getPaddingTop());
 
-    const content_height = widget.height - 2 * widget.padding;
+    const content_height = widget.height - widget.getPaddingVertical();
     const text_height = logical_rect.height;
 
     switch (widget.font_alignment) {
@@ -446,12 +446,12 @@ fn fillRectClipped(
 
 fn measureLayout(widget: *Widget) struct { width: i32, height: i32 } {
     if (widget.children == null or widget.children.?.items.len == 0) {
-        return .{ .width = 2 * widget.padding, .height = 2 * widget.padding };
+        return .{ .width = widget.getPaddingHorizontal(), .height = widget.getPaddingVertical() };
     }
 
     const children = widget.children.?.items;
-    var total_w: i32 = 2 * widget.padding;
-    var total_h: i32 = 2 * widget.padding;
+    var total_w: i32 = widget.getPaddingHorizontal();
+    var total_h: i32 = widget.getPaddingVertical();
 
     if (widget.orientation == .Row) {
         var max_h: i32 = 0;
@@ -536,8 +536,8 @@ pub fn layoutWidget(widget: *Widget, avail_w: i32, avail_h: i32) void {
     widget.width = final_w;
     widget.height = final_h;
 
-    const inner_w = final_w - 2 * widget.padding;
-    const inner_h = final_h - 2 * widget.padding;
+    const inner_w = final_w - widget.getPaddingHorizontal();
+    const inner_h = final_h - widget.getPaddingVertical();
 
     if (widget.children == null) return;
     if (widget.children) |*children| {
@@ -546,13 +546,13 @@ pub fn layoutWidget(widget: *Widget, avail_w: i32, avail_h: i32) void {
 
         if (widget.widget_type == .Layout) {
             if (widget.orientation == .Row) {
-                var cur_x: i32 = widget.padding;
+                var cur_x: i32 = widget.getPaddingLeft();
                 for (children.items, 0..) |child, idx| {
                     const child_w = @min(child.width, inner_w);
                     const child_h = @min(child.height, inner_h);
 
                     child.x = widget.x + cur_x;
-                    child.y = widget.y + widget.padding;
+                    child.y = widget.y + widget.getPaddingTop();
 
                     layoutWidget(child, child_w, child_h);
 
@@ -562,12 +562,12 @@ pub fn layoutWidget(widget: *Widget, avail_w: i32, avail_h: i32) void {
                     }
                 }
             } else if (widget.orientation == .Column) {
-                var cur_y: i32 = widget.padding;
+                var cur_y: i32 = widget.getPaddingTop();
                 for (children.items, 0..) |child, idx| {
                     const child_w = @min(child.width, inner_w);
                     const child_h = @min(child.height, inner_h);
 
-                    child.x = widget.x + widget.padding;
+                    child.x = widget.x + widget.getPaddingLeft();
                     child.y = widget.y + cur_y;
 
                     layoutWidget(child, child_w, child_h);
@@ -582,16 +582,16 @@ pub fn layoutWidget(widget: *Widget, avail_w: i32, avail_h: i32) void {
                     const child_w = @min(child.width, inner_w);
                     const child_h = @min(child.height, inner_h);
 
-                    child.x = widget.x + widget.padding;
-                    child.y = widget.y + widget.padding;
+                    child.x = widget.x + widget.getPaddingLeft();
+                    child.y = widget.y + widget.getPaddingTop();
 
                     layoutWidget(child, child_w, child_h);
                 }
             }
         } else {
             for (children.items) |child| {
-                child.x = widget.x + widget.padding;
-                child.y = widget.y + widget.padding;
+                child.x = widget.x + widget.getPaddingLeft();
+                child.y = widget.y + widget.getPaddingTop();
                 layoutWidget(child, child.width, child.height);
             }
         }
@@ -823,8 +823,7 @@ pub fn ensureCursorVisible(self: *Widget, widget_width: i32) void {
     const text_width = @as(usize, @intCast(logical_rect.width));
 
     // Calculate visible area (accounting for padding)
-    const padding = self.padding;
-    const available_width: usize = @intCast(@max(0, widget_width - (padding * 2)));
+    const available_width: usize = @intCast(@max(0, widget_width - self.getPaddingHorizontal()));
 
     // FIX: If total text is longer than available space, auto-scroll to show the end
     if (text_width > available_width) {

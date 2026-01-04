@@ -154,8 +154,8 @@ fn calculateCursorPositionFromMouse(widget: *Widget, mouse_x: f64, mouse_y: f64)
     c.pango_layout_set_font_description(layout, font_desc);
 
     // Calculate relative mouse position within the widget
-    const text_x = @as(f64, @floatFromInt(widget.x + widget.padding));
-    const text_y = @as(f64, @floatFromInt(widget.y + widget.padding));
+    const text_x = @as(f64, @floatFromInt(widget.x + widget.getPaddingLeft()));
+    const text_y = @as(f64, @floatFromInt(widget.y + widget.getPaddingTop()));
 
     // Account for scroll offset when calculating relative position
     const scroll_amount = widget.scroll_offset orelse 0;
