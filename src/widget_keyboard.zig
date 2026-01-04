@@ -155,6 +155,7 @@ fn keyboard_key(
 }
 
 fn validLetterKey(keycode: u32) u32 {
+    std.debug.print("valid letter key keycode: {d}\n", .{keycode});
     const qwerty_codes = [_]u32{
         16, 17, 18, 19, 20, 21, 22, 23, 24, 25, // q-p
         30, 31, 32, 33, 34, 35, 36, 37, 38, // a-l
@@ -164,6 +165,15 @@ fn validLetterKey(keycode: u32) u32 {
     };
 
     for (qwerty_codes, 0..) |code, i| {
+        _ = i;
+        if (code == keycode) {
+            return code;
+        }
+    }
+
+    // Check number keys
+    const number_codes = [_]u32{ 11, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 };
+    for (number_codes, 0..) |code, i| {
         _ = i;
         if (code == keycode) {
             return code;

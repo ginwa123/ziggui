@@ -321,6 +321,14 @@ fn selectWordAtCursor(widget: *Widget) void {
     const text = widget.input_text;
     const cursor = widget.cursor_position;
 
+    // Return early if text is empty
+    if (text.len == 0) {
+        widget.selection_start = null;
+        widget.selection_end = null;
+        widget.selection_anchor = null;
+        return;
+    }
+
     // Find start of word (whitespace or punctuation before)
     var word_start = cursor;
     while (word_start > 0) {

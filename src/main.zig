@@ -19,7 +19,6 @@ fn myButtonCallback(widget: *Widget, data: ?*anyopaque) void {
 fn onInputTextChange(input_text: []const u8, data: ?*anyopaque) void {
     _ = data;
 
-
     std.debug.print("onInputTextChange: {s}\n", .{input_text});
 }
 
@@ -42,6 +41,26 @@ pub fn main() !void {
     var tk = try ui.init(alllocator, uiToolkit);
     defer tk.free();
 
+    const longListColumn = try container.build(.{
+        .name = "longListColumn",
+        .padding = 8,
+        .gap = 8,
+        .orientation = .Column,
+    });
+
+    const textLongList1 = try text.build(.{ .name = "text", .text = "long list 1", .width = 100 });
+    const textLongList2 = try text.build(.{ .name = "text", .text = "long list 2", .width = 100 });
+    const textLongList3 = try text.build(.{ .name = "text", .text = "long list 3", .width = 100 });
+    const textLongList4 = try text.build(.{ .name = "text", .text = "long list 4", .width = 100 });
+    const textLongList5 = try text.build(.{ .name = "text", .text = "long list 5", .width = 100 });
+    const textLongList6 = try text.build(.{ .name = "text", .text = "long list 6", .width = 100 });
+    const textLongList7 = try text.build(.{ .name = "text", .text = "long list 7", .width = 100 });
+    const textLongList8 = try text.build(.{ .name = "text", .text = "long list 8", .width = 100 });
+    const textLongList9 = try text.build(.{ .name = "text", .text = "long list 9", .width = 100 });
+
+    _ = try longListColumn.add_children(.{ textLongList1, textLongList2, textLongList3, textLongList4, textLongList5, textLongList6, textLongList7, textLongList8, textLongList9 });
+
+    _ = try tk.window.add_child(longListColumn);
 
     const inputText = "init input text";
     const inputUsername = try input.build(.{
@@ -55,19 +74,13 @@ pub fn main() !void {
 
     inputUsername.on_input_text_change = onInputTextChange;
 
-    const inputPassword = try input.build(.{
-        .name = "inputPassword",
-        .max_input_text_length = 255,
-        .placeholder = "password",
-        .padding = 8,
-        .input_text_type = .Password
-    });
+    const inputPassword = try input.build(.{ .name = "inputPassword", .max_input_text_length = 255, .placeholder = "password", .padding = 8, .input_text_type = .Password });
 
     const columnLogin = try container.build(.{
         .name = "columnLogin",
         .padding = 8,
         .gap = 8,
-        .orientation = .Column,
+        .orientation = .Row,
     });
     _ = try columnLogin.add_children(.{ inputUsername, inputPassword });
     _ = try tk.window.add_child(columnLogin);
