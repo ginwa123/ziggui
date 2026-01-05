@@ -6,8 +6,8 @@ const Orientation = w.Orientation;
 
 pub const PropsContainer = struct {
     name: []const u8 = "",
-    width: i32 = 0,
-    height: i32 = 0,
+    width: i32 = -1,  // -1 means auto-size based on children
+    height: i32 = -1, // -1 means auto-size based on children
     text: []const u8 = "",
     background_color: u32 = 0x00000000, // Transparent by default
     orientation: Orientation = .Row,
@@ -16,6 +16,8 @@ pub const PropsContainer = struct {
     border_color: ?u32 = null,
     border_width: ?i32 = 0,
     border_radius: i32 = 0,
+    scrollable: bool = false,
+    scrollbar_width: i32 = 12,
 };
 
 pub fn build(props: PropsContainer) !*Widget {
@@ -33,6 +35,9 @@ pub fn build(props: PropsContainer) !*Widget {
         .border_width = props.border_width,
         .border_radius = props.border_radius,
         .orientation = props.orientation,
+        .scrollable = props.scrollable,
+        .scrollbar_width = props.scrollbar_width,
+        .vertical_scroll_enabled = props.scrollable,
     };
 
     return widget;

@@ -319,11 +319,41 @@ pub fn renderWidget(
 
     renderEyeIcon(widget, pixels, pitch, buf_w, buf_h);
 
-    // Render children
+    // Render children with simple viewport clipping for scrollable containers
     if (widget.children) |children| {
-        for (children.items) |child| {
-            renderWidget(child, pixels, pitch, buf_w, buf_h, app);
+        // For scrollable containers, calculate viewport bounds to prevent overlap
+        if (widget.widget_type == .Layout and widget.isScrollable()) {
+            // Calculate viewport bounds (exclude scrollbar area)
+            const viewport_x = widget.x + widget.getPaddingLeft();
+            const viewport_y = widget.y + widget.getPaddingTop();
+            const scrollbar_offset = if (widget.hasVerticalOverflow()) widget.scrollbar_width + 2 else 0;
+            const viewport_w = widget.width - widget.getPaddingHorizontal() - scrollbar_offset;
+            const viewport_h = widget.height - widget.getPaddingVertical();
+
+            // Render children, but skip those completely outside the viewport
+            for (children.items) |child| {
+                // Check if child is at least partially visible in the viewport
+                const child_visible = child.x < (viewport_x + viewport_w) and
+                                    (child.x + child.width) > viewport_x and
+                                    child.y < (viewport_y + viewport_h) and
+                                    (child.y + child.height) > viewport_y;
+
+                if (child_visible) {
+                    renderWidget(child, pixels, pitch, buf_w, buf_h, app);
+                }
+                // If not visible, skip rendering (this is the clipping)
+            }
+        } else {
+            // Regular rendering without clipping
+            for (children.items) |child| {
+                renderWidget(child, pixels, pitch, buf_w, buf_h, app);
+            }
         }
+    }
+
+    // Render scrollbar for scrollable containers
+    if (widget.widget_type == .Layout and widget.hasVerticalOverflow()) {
+        renderVerticalScrollbar(widget, pixels, pitch, buf_w, buf_h);
     }
 }
 
@@ -444,14 +474,53 @@ fn fillRectClipped(
     }
 }
 
-fn measureLayout(widget: *Widget) struct { width: i32, height: i32 } {
+fn renderVerticalScrollbar(
+    widget: *Widget,
+    pixels: [*]u32,
+    pitch: usize,
+    buf_w: usize,
+    buf_h: usize,
+) void {
+    if (!widget.hasVerticalOverflow()) return;
+
+    const scrollbar_width = widget.scrollbar_width;
+    const content_h = widget.getScrollableContentHeight();
+    const viewport_h = widget.height - widget.getPaddingVertical();
+    const scroll_offset = @as(i32, @intCast(widget.scroll_offset orelse 0));
+
+    // Calculate scrollbar position and size
+    const scrollbar_x = widget.x + widget.width - scrollbar_width - 2;
+    const scrollbar_y = widget.y + widget.getPaddingTop();
+    const scrollbar_h = viewport_h;
+
+    // Calculate thumb position and size
+    const max_scroll = @max(0, content_h - viewport_h);
+    const thumb_h = @max(20, @as(i32, @intFromFloat(@as(f64, @floatFromInt(viewport_h)) * @as(f64, @floatFromInt(viewport_h)) / @as(f64, @floatFromInt(content_h)))));
+    const thumb_track = scrollbar_h - thumb_h; // Available space for thumb to move
+    const thumb_ratio = if (max_scroll > 0) @as(f64, @floatFromInt(scroll_offset)) / @as(f64, @floatFromInt(max_scroll)) else 0.0;
+    const thumb_y = scrollbar_y + @as(i32, @intFromFloat(thumb_ratio * @as(f64, @floatFromInt(thumb_track))));
+
+    // Draw scrollbar track (light gray)
+    fillRectClipped(pixels, pitch, buf_w, buf_h,
+        scrollbar_x, scrollbar_y, scrollbar_width, scrollbar_h, 0xFF444444);
+
+    // Draw scrollbar thumb (darker gray)
+    fillRectClipped(pixels, pitch, buf_w, buf_h,
+        scrollbar_x + 2, thumb_y, scrollbar_width - 4, thumb_h, 0xFF666666);
+}
+
+fn measureLayout(widget: *Widget) struct { width: i32, height: i32, content_width: i32, content_height: i32 } {
     if (widget.children == null or widget.children.?.items.len == 0) {
-        return .{ .width = widget.getPaddingHorizontal(), .height = widget.getPaddingVertical() };
+        const padding_w = widget.getPaddingHorizontal();
+        const padding_h = widget.getPaddingVertical();
+        return .{ .width = padding_w, .height = padding_h, .content_width = padding_w, .content_height = padding_h };
     }
 
     const children = widget.children.?.items;
     var total_w: i32 = widget.getPaddingHorizontal();
     var total_h: i32 = widget.getPaddingVertical();
+    var content_w: i32 = widget.getPaddingHorizontal();
+    var content_h: i32 = widget.getPaddingVertical();
 
     if (widget.orientation == .Row) {
         var max_h: i32 = 0;
@@ -464,13 +533,17 @@ fn measureLayout(widget: *Widget) struct { width: i32, height: i32 } {
                 if (child_h == 0) child_h = measured.height;
             }
 
-            total_w += child_w;
+            content_w += child_w;
             if (idx + 1 < children.len) {
-                total_w += widget.gap;
+                content_w += widget.gap;
             }
             max_h = @max(max_h, child_h);
         }
-        total_h += max_h;
+        content_h += max_h;
+
+        // Viewport dimensions (constrained)
+        total_w = @min(widget.width, content_w);
+        total_h = @min(widget.height, content_h);
     } else if (widget.orientation == .Column) {
         var max_w: i32 = 0;
         for (children, 0..) |child, idx| {
@@ -482,13 +555,17 @@ fn measureLayout(widget: *Widget) struct { width: i32, height: i32 } {
                 if (child_h == 0) child_h = measured.height;
             }
 
-            total_h += child_h;
+            content_h += child_h;
             if (idx + 1 < children.len) {
-                total_h += widget.gap;
+                content_h += widget.gap;
             }
             max_w = @max(max_w, child_w);
         }
-        total_w += max_w;
+        content_w += max_w;
+
+        // Viewport dimensions (constrained)
+        total_w = @min(widget.width, content_w);
+        total_h = @min(widget.height, content_h);
     } else if (widget.orientation == .Stack) {
         var max_w: i32 = 0;
         var max_h: i32 = 0;
@@ -504,19 +581,24 @@ fn measureLayout(widget: *Widget) struct { width: i32, height: i32 } {
             max_w = @max(max_w, child_w);
             max_h = @max(max_h, child_h);
         }
-        total_w += max_w;
-        total_h += max_h;
+        content_w += max_w;
+        content_h += max_h;
+
+        // Viewport dimensions (constrained)
+        total_w = @min(widget.width, content_w);
+        total_h = @min(widget.height, content_h);
     }
 
-    return .{ .width = total_w, .height = total_h };
+    return .{ .width = total_w, .height = total_h, .content_width = content_w, .content_height = content_h };
 }
 
 pub fn layoutWidget(widget: *Widget, avail_w: i32, avail_h: i32) void {
+    // Auto-size containers based on their children if width/height is -1 (auto-size)
     if (widget.widget_type == .Layout and widget.children != null) {
-        if (widget.width == 0 or widget.height == 0) {
+        if (widget.width < 0 or widget.height < 0) {
             const measured = measureLayout(widget);
-            if (widget.width == 0) widget.width = measured.width;
-            if (widget.height == 0) widget.height = measured.height;
+            if (widget.width < 0) widget.width = measured.content_width;
+            if (widget.height < 0) widget.height = measured.content_height;
         }
     }
 
@@ -529,12 +611,45 @@ pub fn layoutWidget(widget: *Widget, avail_w: i32, avail_h: i32) void {
         final_w = avail_w;
         final_h = avail_h;
     } else {
-        final_w = if (avail_w > 0) @min(widget.width, avail_w) else widget.width;
-        final_h = if (avail_h > 0) @min(widget.height, avail_h) else widget.height;
+        // For child widgets: auto-sized widgets use their natural size, explicit-sized widgets can be constrained
+        if (avail_w > 0) {
+            if (widget.width >= 0) {
+                // Explicit size - can be constrained
+                final_w = @min(widget.width, avail_w);
+            }
+            // else: auto-sized, use widget.width (already set from measureLayout)
+        }
+        if (avail_h > 0) {
+            if (widget.height >= 0) {
+                // Explicit size - can be constrained
+                final_h = @min(widget.height, avail_h);
+            }
+            // else: auto-sized, use widget.height (already set from measureLayout)
+        }
     }
 
     widget.width = final_w;
     widget.height = final_h;
+
+    // Store content dimensions for scrollable containers
+    if (widget.widget_type == .Layout and widget.isScrollable()) {
+        const measured = measureLayout(widget);
+        widget.content_width = measured.content_width;
+        widget.content_height = measured.content_height;
+
+        // Clamp scroll offset to valid range
+        if (widget.vertical_scroll_enabled or widget.scrollable) {
+            const max_scroll_y = @max(0, widget.getScrollableContentHeight() - (widget.height - widget.getPaddingVertical()));
+            if (widget.scroll_offset == null) {
+                widget.scroll_offset = 0; // Start at top
+            } else if (widget.scroll_offset.? > @as(usize, @intCast(max_scroll_y))) {
+                widget.scroll_offset = @as(usize, @intCast(max_scroll_y));
+            }
+        }
+        if (widget.horizontal_scroll_enabled) {
+            // Horizontal scroll offset would need similar clamping when implemented
+        }
+    }
 
     const inner_w = final_w - widget.getPaddingHorizontal();
     const inner_h = final_h - widget.getPaddingVertical();
@@ -547,11 +662,14 @@ pub fn layoutWidget(widget: *Widget, avail_w: i32, avail_h: i32) void {
         if (widget.widget_type == .Layout) {
             if (widget.orientation == .Row) {
                 var cur_x: i32 = widget.getPaddingLeft();
+                const scroll_x = @as(i32, @intCast(widget.scroll_offset orelse 0));
+
                 for (children.items, 0..) |child, idx| {
                     const child_w = @min(child.width, inner_w);
                     const child_h = @min(child.height, inner_h);
 
-                    child.x = widget.x + cur_x;
+                    // Apply scroll offset to child positioning
+                    child.x = widget.x + cur_x - scroll_x;
                     child.y = widget.y + widget.getPaddingTop();
 
                     layoutWidget(child, child_w, child_h);
@@ -563,12 +681,15 @@ pub fn layoutWidget(widget: *Widget, avail_w: i32, avail_h: i32) void {
                 }
             } else if (widget.orientation == .Column) {
                 var cur_y: i32 = widget.getPaddingTop();
+                const scroll_y = @as(i32, @intCast(widget.scroll_offset orelse 0));
+
                 for (children.items, 0..) |child, idx| {
                     const child_w = @min(child.width, inner_w);
                     const child_h = @min(child.height, inner_h);
 
                     child.x = widget.x + widget.getPaddingLeft();
-                    child.y = widget.y + cur_y;
+                    // Apply scroll offset to child positioning
+                    child.y = widget.y + cur_y - scroll_y;
 
                     layoutWidget(child, child_w, child_h);
 
@@ -658,6 +779,8 @@ pub fn create_shm_buffer(self: *ginwaGTK) ?*c.wl_buffer {
     return buffer;
 }
 
+
+// this method is for update ui and intensive in cpu, use it carefully
 pub fn redraw(app: *ginwaGTK) void {
     const buffer = create_shm_buffer(app);
     defer c.wl_buffer_destroy(buffer);

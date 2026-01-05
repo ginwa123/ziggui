@@ -65,6 +65,32 @@ fn pointer_motion(
     app.pointer_x = c.wl_fixed_to_double(surface_x);
     app.pointer_y = c.wl_fixed_to_double(surface_y);
 
+    // Handle scrollbar dragging
+    if (w.findWidgetAt(&app.window, app.pointer_x, app.pointer_y)) |clicked_widget| {
+        var scrollable_widget = findScrollableAncestor(clicked_widget) orelse clicked_widget;
+
+        if (scrollable_widget.is_dragging_scrollbar) {
+            const drag_delta = @as(i32, @intFromFloat(app.pointer_y)) - scrollable_widget.scrollbar_drag_start;
+            const content_h = scrollable_widget.getScrollableContentHeight();
+            const viewport_h = scrollable_widget.height - scrollable_widget.getPaddingVertical();
+            const max_scroll = @max(0, content_h - viewport_h);
+
+            // Calculate scrollbar thumb movement ratio
+            const scrollbar_track_h = viewport_h - scrollable_widget.scrollbar_width;
+            const scroll_ratio = if (scrollbar_track_h > 0)
+                @as(f64, @floatFromInt(drag_delta)) / @as(f64, @floatFromInt(scrollbar_track_h))
+            else
+                0.0;
+
+            const new_scroll = @as(i32, @intFromFloat(scroll_ratio * @as(f64, @floatFromInt(max_scroll))));
+            const clamped_scroll = @max(0, @min(new_scroll, max_scroll));
+
+            scrollable_widget.scroll_offset = scrollable_widget.scrollbar_drag_start_offset + @as(usize, @intCast(clamped_scroll));
+            std.debug.print("Dragging scroll: delta={d}, new_offset={d}\n", .{ drag_delta, scrollable_widget.scroll_offset orelse 0 });
+            wr.redraw(app);
+        }
+    }
+
     if (app.mouse_dragging) {
         if (app.mouse_drag_start_widget) |drag_widget| {
             if (drag_widget.widget_type == .Input) {
@@ -94,6 +120,7 @@ fn pointer_motion(
         if (app.hovered_widget) |hovered_widget| {
             if (prev != hovered_widget) {
                 prev.backround_is_hovered = false;
+                wr.redraw(app);
             }
         }
     }
@@ -101,7 +128,11 @@ fn pointer_motion(
     if (app.hovered_widget) |hovered_widget| {
         std.debug.print("Hover widget: {s}\n", .{hovered_widget.name});
         hovered_widget.backround_is_hovered = true;
-        wr.redraw(app);
+
+        if (hovered_widget.background_hover_color) |hover_color| {
+            _ = hover_color;
+            wr.redraw(app);
+        }
     }
 }
 
@@ -210,9 +241,38 @@ fn pointer_button(
             if (w.findWidgetAt(&app.window, app.pointer_x, app.pointer_y)) |clicked_widget| {
                 std.debug.print("Clicked on widget: {s}\n", .{clicked_widget.name});
 
+                // Handle scrollbar drag
+                var scrollable_widget = findScrollableAncestor(clicked_widget) orelse clicked_widget;
+
+                if (scrollable_widget.isPointOnVerticalScrollbar(app.pointer_x, app.pointer_y)) {
+                    if (scrollable_widget.isPointOnVerticalScrollbarThumb(app.pointer_x, app.pointer_y)) {
+                        // Start dragging the scrollbar thumb
+                        scrollable_widget.is_dragging_scrollbar = true;
+                        scrollable_widget.scrollbar_drag_start = @as(i32, @intFromFloat(app.pointer_y));
+                        scrollable_widget.scrollbar_drag_start_offset = scrollable_widget.scroll_offset orelse 0;
+                        std.debug.print("Started scrolling drag\n", .{});
+                    } else {
+                        // Click on scrollbar track - jump to position
+                        const content_h = scrollable_widget.getScrollableContentHeight();
+                        const viewport_h = scrollable_widget.height - scrollable_widget.getPaddingVertical();
+                        const scrollbar_h = viewport_h;
+
+                        const scrollbar_y = scrollable_widget.y + scrollable_widget.getPaddingTop();
+                        const click_ratio = @as(f64, @floatFromInt(@as(i32, @intFromFloat(app.pointer_y)) - scrollbar_y)) / @as(f64, @floatFromInt(scrollbar_h));
+                        const max_scroll = @max(0, content_h - viewport_h);
+                        const new_scroll = @as(i32, @intFromFloat(click_ratio * @as(f64, @floatFromInt(max_scroll))));
+
+                        scrollable_widget.scroll_offset = @as(usize, @intCast(@max(0, new_scroll)));
+                        std.debug.print("Jumped scroll to {d}\n", .{scrollable_widget.scroll_offset orelse 0});
+                        wr.redraw(app);
+                    }
+                    return; // Don't process as regular click
+                }
+
                 // Check if clicked on eye icon of a password input
                 if (clicked_widget.widget_type == .Input and
-                    clicked_widget.input_text_type == .Password ) {
+                    clicked_widget.input_text_type == .Password)
+                {
 
                     // Calculate eye icon bounds
                     const icon_size: i32 = 16;
@@ -226,13 +286,14 @@ fn pointer_button(
                     if (app.pointer_x >= @as(f64, @floatFromInt(icon_x)) and
                         app.pointer_x <= @as(f64, @floatFromInt(icon_x2)) and
                         app.pointer_y >= @as(f64, @floatFromInt(icon_y)) and
-                        app.pointer_y <= @as(f64, @floatFromInt(icon_y2))) {
+                        app.pointer_y <= @as(f64, @floatFromInt(icon_y2)))
+                    {
 
                         // Toggle password visibility
                         clicked_widget.password_visible = !clicked_widget.password_visible;
                         std.debug.print("Password visibility toggled: {}\n", .{clicked_widget.password_visible});
                         wr.redraw(app);
-                        return;  // Don't trigger input focus when clicking eye icon
+                        return; // Don't trigger input focus when clicking eye icon
                     }
                 }
 
@@ -305,6 +366,15 @@ fn pointer_button(
         }
     } else if (state == c.WL_POINTER_BUTTON_STATE_RELEASED) {
         if (button == 0x110) { // left click
+            // Stop scrollbar dragging if active
+            if (w.findWidgetAt(&app.window, app.pointer_x, app.pointer_y)) |clicked_widget| {
+                var scrollable_widget = findScrollableAncestor(clicked_widget) orelse clicked_widget;
+                if (scrollable_widget.is_dragging_scrollbar) {
+                    scrollable_widget.is_dragging_scrollbar = false;
+                    std.debug.print("Stopped scrolling drag\n", .{});
+                }
+            }
+
             app.mouse_dragging = false;
             app.mouse_drag_start_widget = null;
 
@@ -361,11 +431,53 @@ fn pointer_frame(data: ?*anyopaque, pointer: ?*c.struct_wl_pointer) callconv(.c)
     _ = pointer;
 }
 
+fn findScrollableAncestor(widget: *Widget) ?*Widget {
+    var current = widget;
+    while (current.parent) |parent| {
+        if (parent.vertical_scroll_enabled or parent.scrollable) {
+            return parent;
+        }
+        current = parent;
+    }
+    return null;
+}
+
+fn pointer_axis(
+    data: ?*anyopaque,
+    pointer: ?*c.struct_wl_pointer,
+    time: u32,
+    axis: u32,
+    value: c.wl_fixed_t,
+) callconv(.c) void {
+    _ = pointer;
+    _ = time;
+
+    const app: *ginwaGTK = @ptrCast(@alignCast(data.?));
+
+    // Find the widget under cursor
+    if (w.findWidgetAt(&app.window, app.pointer_x, app.pointer_y)) |target_widget| {
+        // Find parent scrollable container
+        const scrollable_widget = findScrollableAncestor(target_widget) orelse target_widget;
+
+        // Handle vertical scrolling
+        if (axis == c.WL_POINTER_AXIS_VERTICAL_SCROLL) {
+            const scroll_amount = @divFloor(value, 10); // Smaller divisor = faster scroll
+            const current_scroll = scrollable_widget.scroll_offset orelse 0;
+            const new_scroll = @max(0, @as(i32, @intCast(current_scroll)) + scroll_amount);
+
+            const max_scroll = @max(0, scrollable_widget.getScrollableContentHeight() - (scrollable_widget.height - scrollable_widget.getPaddingVertical()));
+            scrollable_widget.scroll_offset = @min(@as(usize, @intCast(new_scroll)), @as(usize, @intCast(max_scroll)));
+
+            wr.redraw(app);
+        }
+    }
+}
+
 pub const pointer_listener = c.struct_wl_pointer_listener{
     .enter = pointer_enter,
     .leave = pointer_leave,
     .motion = pointer_motion,
     .button = pointer_button,
-    .axis = null,
+    .axis = pointer_axis,
     .frame = pointer_frame,
 };

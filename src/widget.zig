@@ -220,6 +220,8 @@ pub const ginwaGTK = struct {
         if (window_width == 0 or window_height == 0) {
             return;
         }
+
+        wr.redraw(self);
         std.debug.print("width: {d}, height: {d}\n", .{ window_width, window_height });
     }
 
@@ -419,8 +421,8 @@ pub const Widget = struct {
 
     x: i32 = 0,
     y: i32 = 0,
-    width: i32 = 0,
-    height: i32 = 0,
+    width: i32 = -1,  // -1 means auto-size
+    height: i32 = -1, // -1 means auto-size
 
     padding: i32 = 0,
     padding_left: ?i32 = null,
@@ -464,6 +466,20 @@ pub const Widget = struct {
     on_click_backgroud_is_hovered: bool = false,
     on_click_hover_color: ?u32 = null,
 
+    scrollable: bool = false,
+
+    content_width: ?i32 = null,
+    content_height: ?i32 = null,
+    scrollbar_width: i32 = 12,
+    vertical_scroll_enabled: bool = false,
+    horizontal_scroll_enabled: bool = false,
+    parent: ?*Widget = null,
+
+    // Scrollbar drag state
+    is_dragging_scrollbar: bool = false,
+    scrollbar_drag_start: i32 = 0,
+    scrollbar_drag_start_offset: usize = 0,
+
     // Helper methods for directional padding
     pub fn getPaddingLeft(self: *const Widget) i32 {
         return self.padding_left orelse self.padding;
@@ -489,6 +505,83 @@ pub const Widget = struct {
         return self.getPaddingTop() + self.getPaddingBottom();
     }
 
+    pub fn isScrollable(self: *const Widget) bool {
+        return self.scrollable or self.vertical_scroll_enabled or self.horizontal_scroll_enabled;
+    }
+
+    pub fn hasVerticalOverflow(self: *const Widget) bool {
+        if (!self.vertical_scroll_enabled and !self.scrollable) return false;
+        const content_h = self.content_height orelse 0;
+        const viewport_h = self.height - self.getPaddingVertical();
+        return content_h > viewport_h;
+    }
+
+    pub fn hasHorizontalOverflow(self: *const Widget) bool {
+        if (!self.horizontal_scroll_enabled and !self.scrollable) return false;
+        const content_w = self.content_width orelse 0;
+        const viewport_w = self.width - self.getPaddingHorizontal();
+        return content_w > viewport_w;
+    }
+
+    pub fn getScrollableContentWidth(self: *const Widget) i32 {
+        return self.content_width orelse self.width - self.getPaddingHorizontal();
+    }
+
+    pub fn getScrollableContentHeight(self: *const Widget) i32 {
+        return self.content_height orelse self.height - self.getPaddingVertical();
+    }
+
+    pub fn isPointOnVerticalScrollbar(self: *const Widget, x: f64, y: f64) bool {
+        if (!self.hasVerticalOverflow()) return false;
+
+        const scrollbar_x = self.x + self.width - self.scrollbar_width - 2;
+        const scrollbar_y = self.y + self.getPaddingTop();
+        const scrollbar_h = self.height - self.getPaddingVertical();
+
+        return x >= @as(f64, @floatFromInt(scrollbar_x)) and
+               x <= @as(f64, @floatFromInt(scrollbar_x + self.scrollbar_width)) and
+               y >= @as(f64, @floatFromInt(scrollbar_y)) and
+               y <= @as(f64, @floatFromInt(scrollbar_y + scrollbar_h));
+    }
+
+    pub fn getVerticalScrollbarThumbRect(self: *const Widget) struct { x: i32, y: i32, width: i32, height: i32 } {
+        if (!self.hasVerticalOverflow()) {
+            return .{ .x = 0, .y = 0, .width = 0, .height = 0 };
+        }
+
+        const scrollbar_width = self.scrollbar_width;
+        const content_h = self.getScrollableContentHeight();
+        const viewport_h = self.height - self.getPaddingVertical();
+        const scroll_offset = @as(i32, @intCast(self.scroll_offset orelse 0));
+
+        const scrollbar_x = self.x + self.width - scrollbar_width - 2;
+        const scrollbar_y = self.y + self.getPaddingTop();
+        const scrollbar_h = viewport_h;
+
+        const max_scroll = @max(0, content_h - viewport_h);
+        const thumb_h = @max(20, @as(i32, @intFromFloat(@as(f64, @floatFromInt(viewport_h)) * @as(f64, @floatFromInt(viewport_h)) / @as(f64, @floatFromInt(content_h)))));
+        const thumb_track = scrollbar_h - thumb_h;
+        const thumb_ratio = if (max_scroll > 0) @as(f64, @floatFromInt(scroll_offset)) / @as(f64, @floatFromInt(max_scroll)) else 0.0;
+        const thumb_y = scrollbar_y + @as(i32, @intFromFloat(thumb_ratio * @as(f64, @floatFromInt(thumb_track))));
+
+        return .{
+            .x = scrollbar_x + 2,
+            .y = thumb_y,
+            .width = scrollbar_width - 4,
+            .height = thumb_h,
+        };
+    }
+
+    pub fn isPointOnVerticalScrollbarThumb(self: *const Widget, x: f64, y: f64) bool {
+        if (!self.hasVerticalOverflow()) return false;
+
+        const rect = self.getVerticalScrollbarThumbRect();
+        return x >= @as(f64, @floatFromInt(rect.x)) and
+               x <= @as(f64, @floatFromInt(rect.x + rect.width)) and
+               y >= @as(f64, @floatFromInt(rect.y)) and
+               y <= @as(f64, @floatFromInt(rect.y + rect.height));
+    }
+
     pub fn trigger_click(self: *Widget) void {
         if (self.on_click) |callback| {
             callback(self, self.click_data);
@@ -508,6 +601,7 @@ pub const Widget = struct {
         }
 
         child.parent_guid = self.guid;
+        child.parent = self;
         try self.children.?.append(default_allocator, child);
     }
 

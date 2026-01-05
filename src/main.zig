@@ -46,6 +46,9 @@ pub fn main() !void {
         .padding = 8,
         .gap = 8,
         .orientation = .Column,
+        .scrollable = true,
+        .width = 300,
+        .height = 200,
     });
 
     const textLongList1 = try text.build(.{ .name = "text", .text = "long list 1", .width = 100 });
