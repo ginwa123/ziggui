@@ -90,6 +90,7 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(exe);
 
     exe.linkSystemLibrary("wayland-client");
+    exe.linkSystemLibrary("wayland-cursor");
 
     exe.addCSourceFile(.{
         .file = b.path("src/xdg-shell-protocol.c"),

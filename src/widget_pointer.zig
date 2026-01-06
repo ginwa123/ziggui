@@ -17,10 +17,8 @@ fn pointer_enter(
 ) callconv(.c) void {
     _ = pointer;
     _ = surface;
-    _ = data;
-    _ = serial;
-    // const app: *ginwaGTK = @ptrCast(@alignCast(data.?));
-    // app.last_serial = serial; // simpan serial untuk set cursor atau pointer constraints nanti
+    const app: *ginwaGTK = @ptrCast(@alignCast(data.?));
+    app.last_serial = serial;
 
     std.debug.print("Pointer ENTER surface at ({d:.1}, {d:.1})\n", .{
         c.wl_fixed_to_double(surface_x),
@@ -36,9 +34,10 @@ fn pointer_leave(
 ) callconv(.c) void {
     _ = pointer;
     _ = surface;
-    _ = serial;
     std.debug.print("Pointer LEAVE surface\n", .{});
     const app: *ginwaGTK = @ptrCast(@alignCast(data.?));
+
+    app.last_serial = serial;
     if (app.hovered_widget) |hovered_widget| {
         hovered_widget.backround_is_hovered = false;
         app.hovered_widget = null;
@@ -133,6 +132,8 @@ fn pointer_motion(
             _ = hover_color;
             wr.redraw(app);
         }
+
+        set_cursor_for_widget(app, hovered_widget, app.last_serial);
     }
 }
 
@@ -227,12 +228,13 @@ fn pointer_button(
     button: u32,
     state: u32,
 ) callconv(.c) void {
-    _ = serial;
     _ = pointer;
     _ = time;
 
     const app: *ginwaGTK = @ptrCast(@alignCast(data.?));
     const now = utils.getNanoTime();
+
+    app.last_serial = serial;
 
     if (state == c.WL_POINTER_BUTTON_STATE_PRESSED) {
         if (button == 0x110) { // left click
@@ -469,6 +471,48 @@ fn pointer_axis(
             scrollable_widget.scroll_offset = @min(@as(usize, @intCast(new_scroll)), @as(usize, @intCast(max_scroll)));
 
             wr.redraw(app);
+        }
+    }
+}
+
+fn set_cursor_for_widget(app: *ginwaGTK, widget: *Widget, serial: u32) void {
+    var cursor_name: [*c]const u8 = "left_ptr";
+
+    if (widget.widget_type == .Button) {
+        cursor_name = "hand1";
+    }
+
+    if (widget.widget_type == .Text) {
+        cursor_name = "left_ptr";
+    }
+
+    if (widget.widget_type == .Layout) {
+        cursor_name = "left_ptr";
+    }
+
+    if (widget.widget_type == .Input) {
+        cursor_name = "xterm";
+    }
+
+    if (app.wl_pointer) |pointer| {
+        if (app.cursor_theme) |cursor_theme| {
+            const cursor = c.wl_cursor_theme_get_cursor(cursor_theme, cursor_name);
+            const image = cursor.*.images[0];
+
+            // const buffer = c.wl_cursor_image_get_buffer(image);
+            const hotspot_x: i32 = @intCast(image.*.hotspot_x);
+            const hotspot_y: i32 = @intCast(image.*.hotspot_y);
+
+            const buffer = c.wl_cursor_image_get_buffer(image);
+
+            const image_width: i32 = @intCast(image.*.width);
+            const image_height: i32 = @intCast(image.*.height);
+            c.wl_surface_damage(app.cursor_surface, 0, 0, image_width, image_height);
+
+            c.wl_surface_attach(app.cursor_surface, buffer, 0, 0);
+            c.wl_surface_commit(app.cursor_surface);
+
+            c.wl_pointer_set_cursor(pointer, serial, app.cursor_surface, hotspot_x, hotspot_y);
         }
     }
 }

@@ -55,6 +55,7 @@ fn registryHandleGlobal(user_data: ?*anyopaque, registry: ?*c.struct_wl_registry
             version,
         ));
         app.surface = c.wl_compositor_create_surface(app.compositor);
+        app.cursor_surface = c.wl_compositor_create_surface(app.compositor);
     }
 
     if (std.mem.eql(u8, iface, "xdg_wm_base")) {
@@ -74,6 +75,11 @@ fn registryHandleGlobal(user_data: ?*anyopaque, registry: ?*c.struct_wl_registry
 
     if (std.mem.eql(u8, iface, "wl_shm")) {
         app.shm = @ptrCast(c.wl_registry_bind(registry, name, &c.wl_shm_interface, 1));
+
+        app.cursor_theme = c.wl_cursor_theme_load("todo", 24, app.shm);
+        app.default_cursor = c.wl_cursor_theme_get_cursor(app.cursor_theme, "left_ptr");
+        app.text_cursor = c.wl_cursor_theme_get_cursor(app.cursor_theme, "xterm");
+        app.hand_cursor = c.wl_cursor_theme_get_cursor(app.cursor_theme, "hand1");
     }
 
     if (std.mem.eql(u8, iface, "wl_seat")) {
@@ -156,6 +162,15 @@ pub const ginwaGTK = struct {
     data_source: ?*c.wl_data_source = null,
     data_device: ?*c.wl_data_device = null,
 
+    last_serial: u32 = 0,
+
+    // cursor
+    cursor_surface: ?*c.wl_surface = null,
+    cursor_theme: ?*c.wl_cursor_theme = null,
+    default_cursor: ?*c.wl_cursor = null,
+    text_cursor: ?*c.wl_cursor = null,
+    hand_cursor: ?*c.wl_cursor = null,
+
     // screen
     old_buffer: ?*c.wl_buffer = null,
     current_buffer: ?*c.wl_buffer = null,
@@ -236,11 +251,13 @@ pub const ginwaGTK = struct {
             }
             children.deinit(self.allocator());
         }
+        if (self.cursor_theme) |cursor_theme| {
+            c.wl_cursor_theme_destroy(cursor_theme);
+        }
 
-        _ = c.wl_display_disconnect(self.display);
-        // _ = self.gpa.deinit();
-
-        // _ = default_gpa.deinit();
+        if (self.display) |display| {
+            _ = c.wl_display_disconnect(display);
+        }
     }
 
     pub fn allocator(self: *ginwaGTK) std.mem.Allocator {
@@ -421,7 +438,7 @@ pub const Widget = struct {
 
     x: i32 = 0,
     y: i32 = 0,
-    width: i32 = -1,  // -1 means auto-size
+    width: i32 = -1, // -1 means auto-size
     height: i32 = -1, // -1 means auto-size
 
     padding: i32 = 0,
@@ -429,7 +446,6 @@ pub const Widget = struct {
     padding_right: ?i32 = null,
     padding_top: ?i32 = null,
     padding_bottom: ?i32 = null,
-
 
     input_text: []const u8 = "",
     input_text_type: ?InputTextType = null,
@@ -539,9 +555,9 @@ pub const Widget = struct {
         const scrollbar_h = self.height - self.getPaddingVertical();
 
         return x >= @as(f64, @floatFromInt(scrollbar_x)) and
-               x <= @as(f64, @floatFromInt(scrollbar_x + self.scrollbar_width)) and
-               y >= @as(f64, @floatFromInt(scrollbar_y)) and
-               y <= @as(f64, @floatFromInt(scrollbar_y + scrollbar_h));
+            x <= @as(f64, @floatFromInt(scrollbar_x + self.scrollbar_width)) and
+            y >= @as(f64, @floatFromInt(scrollbar_y)) and
+            y <= @as(f64, @floatFromInt(scrollbar_y + scrollbar_h));
     }
 
     pub fn getVerticalScrollbarThumbRect(self: *const Widget) struct { x: i32, y: i32, width: i32, height: i32 } {
@@ -577,9 +593,9 @@ pub const Widget = struct {
 
         const rect = self.getVerticalScrollbarThumbRect();
         return x >= @as(f64, @floatFromInt(rect.x)) and
-               x <= @as(f64, @floatFromInt(rect.x + rect.width)) and
-               y >= @as(f64, @floatFromInt(rect.y)) and
-               y <= @as(f64, @floatFromInt(rect.y + rect.height));
+            x <= @as(f64, @floatFromInt(rect.x + rect.width)) and
+            y >= @as(f64, @floatFromInt(rect.y)) and
+            y <= @as(f64, @floatFromInt(rect.y + rect.height));
     }
 
     pub fn trigger_click(self: *Widget) void {

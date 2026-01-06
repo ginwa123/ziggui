@@ -35,6 +35,7 @@ pub fn main() !void {
             .background_color = 0xFF333333,
             .padding = 8,
             .gap = 8,
+            .scrollable = true,
         },
     };
 
@@ -197,6 +198,8 @@ pub fn main() !void {
 
     std.debug.print("Event loop!\n", .{});
     try tk.event_loop();
+
+    std.debug.print("App closed!\n", .{});
 }
 
 test "simple test" {
