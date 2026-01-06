@@ -435,6 +435,13 @@ fn pointer_frame(data: ?*anyopaque, pointer: ?*c.struct_wl_pointer) callconv(.c)
 
 fn findScrollableAncestor(widget: *Widget) ?*Widget {
     var current = widget;
+
+    // First check if the current widget itself is scrollable
+    if (current.vertical_scroll_enabled or current.scrollable) {
+        return current;
+    }
+
+    // If not, check parent widgets
     while (current.parent) |parent| {
         if (parent.vertical_scroll_enabled or parent.scrollable) {
             return parent;
