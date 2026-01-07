@@ -70,6 +70,66 @@ fn renderEyeIcon(
     // }
 }
 
+
+fn renderIconImage(
+    widget: *Widget,
+    pixels: [*]u32,
+    pitch: usize,
+    buf_w: usize,
+    buf_h: usize,
+) void {
+    if (widget.image == null) return;
+    const decoded_image = widget.image.?;
+
+    // Original image dimensions
+    const orig_img_w = decoded_image.width;
+    const orig_img_h = decoded_image.height;
+
+    // Display dimensions (from widget)
+    const display_w = widget.width;
+    const display_h = widget.height;
+
+    // Position the icon centered in the widget
+    const img_x = widget.x + @divTrunc(widget.width - display_w, 2);
+    const img_y = widget.y + @divTrunc(widget.height - display_h, 2);
+
+    // Calculate scaling factors
+    const scale_x = @as(f32, @floatFromInt(display_w)) / @as(f32, @floatFromInt(orig_img_w));
+    const scale_y = @as(f32, @floatFromInt(display_h)) / @as(f32, @floatFromInt(orig_img_h));
+
+    var py: i32 = 0;
+    while (py < display_h) : (py += 1) {
+        if (img_y + py < 0 or img_y + py >= @as(i32, @intCast(buf_h))) continue;
+        const row = @as(usize, @intCast(img_y + py)) * pitch;
+
+        var px: i32 = 0;
+        while (px < display_w) : (px += 1) {
+            if (img_x + px < 0 or img_x + px >= @as(i32, @intCast(buf_w))) continue;
+
+            // Map display pixel to original image pixel using scaling
+            const src_x_f = @as(f32, @floatFromInt(px)) / scale_x;
+            const src_y_f = @as(f32, @floatFromInt(py)) / scale_y;
+
+            const src_x = @min(orig_img_w - 1, @as(i32, @intFromFloat(src_x_f)));
+            const src_y = @min(orig_img_h - 1, @as(i32, @intFromFloat(src_y_f)));
+
+            const img_idx = (@as(usize, @intCast(src_y)) * orig_img_w + @as(usize, @intCast(src_x))) * 4;
+            const screen_idx = row + @as(usize, @intCast(img_x + px));
+
+            // Read channels as-is from stb_image
+            const r = decoded_image.rgba[img_idx + 0];
+            const g = decoded_image.rgba[img_idx + 1];
+            const b = decoded_image.rgba[img_idx + 2];
+            const a = decoded_image.rgba[img_idx + 3];
+
+            // Render with alpha blending
+            if (a > 0) {
+                pixels[screen_idx] = @as(u32, r) | (@as(u32, g) << 8) | (@as(u32, b) << 16) | 0xFF000000;
+            }
+        }
+    }
+}
+
 pub fn renderText(
     widget: *Widget,
     pixels: [*]u32,
@@ -317,6 +377,11 @@ pub fn renderWidget(
     const pitch_bytes = pitch * 4;
     renderText(widget, pixels, pitch_bytes, buf_w, buf_h, app);
 
+    // Render icon image
+    if (widget.widget_type == .Icon and widget.image != null) {
+        renderIconImage(widget, pixels, pitch, buf_w, buf_h);
+    }
+
     renderEyeIcon(widget, pixels, pitch, buf_w, buf_h);
 
     // Render children with simple viewport clipping for scrollable containers
@@ -334,9 +399,9 @@ pub fn renderWidget(
             for (children.items) |child| {
                 // Check if child is at least partially visible in the viewport
                 const child_visible = child.x < (viewport_x + viewport_w) and
-                                    (child.x + child.width) > viewport_x and
-                                    child.y < (viewport_y + viewport_h) and
-                                    (child.y + child.height) > viewport_y;
+                    (child.x + child.width) > viewport_x and
+                    child.y < (viewport_y + viewport_h) and
+                    (child.y + child.height) > viewport_y;
 
                 if (child_visible) {
                     renderWidget(child, pixels, pitch, buf_w, buf_h, app);
@@ -501,12 +566,10 @@ fn renderVerticalScrollbar(
     const thumb_y = scrollbar_y + @as(i32, @intFromFloat(thumb_ratio * @as(f64, @floatFromInt(thumb_track))));
 
     // Draw scrollbar track (light gray)
-    fillRectClipped(pixels, pitch, buf_w, buf_h,
-        scrollbar_x, scrollbar_y, scrollbar_width, scrollbar_h, 0xFF444444);
+    fillRectClipped(pixels, pitch, buf_w, buf_h, scrollbar_x, scrollbar_y, scrollbar_width, scrollbar_h, 0xFF444444);
 
     // Draw scrollbar thumb (darker gray)
-    fillRectClipped(pixels, pitch, buf_w, buf_h,
-        scrollbar_x + 2, thumb_y, scrollbar_width - 4, thumb_h, 0xFF666666);
+    fillRectClipped(pixels, pitch, buf_w, buf_h, scrollbar_x + 2, thumb_y, scrollbar_width - 4, thumb_h, 0xFF666666);
 }
 
 fn measureLayout(widget: *Widget) struct { width: i32, height: i32, content_width: i32, content_height: i32 } {
@@ -779,7 +842,6 @@ pub fn create_shm_buffer(self: *ginwaGTK) ?*c.wl_buffer {
     return buffer;
 }
 
-
 // this method is for update ui and intensive in cpu, use it carefully
 pub fn redraw(app: *ginwaGTK) void {
     const buffer = create_shm_buffer(app);
@@ -971,3 +1033,32 @@ pub fn ensureCursorVisible(self: *Widget, widget_width: i32) void {
         self.scroll_offset = text_width;
     }
 }
+
+pub fn decode_image(alloc: std.mem.Allocator, imagePath: []const u8) !w.DecodedImage {
+    const file = try std.fs.cwd().openFile(imagePath, .{});
+    defer file.close();
+
+    const stat = try file.stat();
+    const data = try file.readToEndAlloc(alloc, stat.size);
+
+    var width: c_int = 0;
+    var height: c_int = 0;
+    var channels: c_int = 0;
+    const pixels = c.stbi_load_from_memory(data.ptr, @intCast(data.len), &width, &height, &channels, 4);
+
+    if (pixels == null) {
+        std.debug.print("ERROR: stbi_load_from_memory failed for {s}\n", .{imagePath});
+        return error.InvalidImageData;
+    }
+
+    std.debug.print("Image loaded: {}x{}, channels={}\n", .{ width, height, channels });
+
+    return w.DecodedImage{
+        .width = @intCast(width),
+        .height = @intCast(height),
+        .rgba = pixels,
+        .file_buffer = data,
+        .file_path = imagePath
+    };
+}
+

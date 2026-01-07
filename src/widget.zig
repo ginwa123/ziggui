@@ -382,7 +382,7 @@ pub const seat_listener = c.struct_wl_seat_listener{
 /// rendering system
 pub const Orientation = enum { Row, Column, Stack };
 
-pub const WidgetType = enum { Button, Layout, Input, Text };
+pub const WidgetType = enum { Button, Layout, Input, Text, Icon };
 
 pub const FontWeight = enum {
     Normal,
@@ -423,6 +423,14 @@ pub const InputTextType = enum {
     Password,
     Number,
     Email,
+};
+
+pub const DecodedImage = struct {
+    width: u32,
+    height: u32,
+    rgba: [*c]u8,
+    file_buffer: []u8,
+    file_path: []const u8,
 };
 
 pub const Widget = struct {
@@ -495,6 +503,10 @@ pub const Widget = struct {
     is_dragging_scrollbar: bool = false,
     scrollbar_drag_start: i32 = 0,
     scrollbar_drag_start_offset: usize = 0,
+
+
+    // Image
+    image: ?*DecodedImage = null,
 
     // Helper methods for directional padding
     pub fn getPaddingLeft(self: *const Widget) i32 {
@@ -631,6 +643,10 @@ pub const Widget = struct {
     pub fn deinit(self: *Widget) void {
         if (self.children) |*list| {
             for (list.items) |child| {
+                if (child.image) |decodedImage| {
+                    c.stbi_image_free(decodedImage.rgba);
+                    default_allocator.free(decodedImage.file_buffer);
+                }
                 child.deinit();
                 default_allocator.destroy(child);
             }

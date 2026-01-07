@@ -10,6 +10,7 @@ const button = @import("components/button.zig");
 const input = @import("components/input.zig");
 const text = @import("components/text.zig");
 const container = @import("components/container.zig");
+const icon = @import("components/icon.zig");
 
 fn myButtonCallback(widget: *Widget, data: ?*anyopaque) void {
     _ = widget;
@@ -41,6 +42,22 @@ pub fn main() !void {
 
     var tk = try ui.init(alllocator, uiToolkit);
     defer tk.free();
+
+    const row_icon = try container.build(.{
+        .name = "row",
+        // .background_color = 0xFF00FF00,
+        .gap = 8,
+        .orientation = .Row,
+    });
+    const icon1 = try icon.build(.{
+        .name = "icon1",
+        .src_image = "assets/signing_903481.png",
+        .width = 21,
+        .height = 21
+    });
+
+    _ = try row_icon.add_children(.{icon1});
+    _ = try tk.window.add_child(row_icon);
 
     const longListColumn = try container.build(.{
         .name = "longListColumn",
