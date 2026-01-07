@@ -3,6 +3,7 @@ const w = @import("../widget.zig");
 const random = @import("../random.zig");
 const Widget = w.Widget;
 const Orientation = w.Orientation;
+const LayoutAlignment = w.LayoutAlignment;
 
 pub const PropsContainer = struct {
     name: []const u8 = "",
@@ -12,6 +13,8 @@ pub const PropsContainer = struct {
     background_color: u32 = 0x00000000, // Transparent by default
     orientation: Orientation = .Row,
     gap: i32 = 0,
+    horizontal_alignment: ?LayoutAlignment = null,
+    vertical_alignment: ?LayoutAlignment = null,
     padding: i32 = 0,
     border_color: ?u32 = null,
     border_width: ?i32 = 0,
@@ -40,6 +43,8 @@ pub fn build(props: PropsContainer) !*Widget {
         .scrollable = props.scrollable,
         .scrollbar_width = props.scrollbar_width,
         .vertical_scroll_enabled = props.scrollable,
+        .horizontal_alignment = props.horizontal_alignment,
+        .vertical_alignment = props.vertical_alignment,
     };
 
     return widget;

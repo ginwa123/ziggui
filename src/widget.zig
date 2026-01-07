@@ -433,6 +433,17 @@ pub const DecodedImage = struct {
     file_path: []const u8,
 };
 
+
+// to be used in layout for children items
+pub const LayoutAlignment = enum {
+    Start,
+    Center,
+    End,
+    SpaceBetween,
+    SpaceAround,
+    SpaceEvenly
+};
+
 pub const Widget = struct {
     guid: []const u8 = "",
     parent_guid: []const u8 = "",
@@ -447,8 +458,8 @@ pub const Widget = struct {
 
     x: i32 = 0,
     y: i32 = 0,
-    width: i32 = -1, // -1 means auto-size
-    height: i32 = -1, // -1 means auto-size
+    width: i32 = -1, // -1 means auto-size // widget width
+    height: i32 = -1, // -1 means auto-size // widget height
     desired_width: ?i32 = null, // Original desired width (for layout restoration)
     desired_height: ?i32 = null, // Original desired height (for layout restoration)
 
@@ -457,6 +468,8 @@ pub const Widget = struct {
     padding_right: ?i32 = null,
     padding_top: ?i32 = null,
     padding_bottom: ?i32 = null,
+    horizontal_alignment: ?LayoutAlignment = null,
+    vertical_alignment: ?LayoutAlignment = null,
 
     input_text: []const u8 = "",
     input_text_type: ?InputTextType = null,
@@ -506,7 +519,6 @@ pub const Widget = struct {
     is_dragging_scrollbar: bool = false,
     scrollbar_drag_start: i32 = 0,
     scrollbar_drag_start_offset: usize = 0,
-
 
     // Image
     image: ?*DecodedImage = null,

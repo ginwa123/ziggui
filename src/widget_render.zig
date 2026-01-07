@@ -5,6 +5,7 @@ const wk = @import("widget_keyboard.zig");
 const c = w.c;
 const Widget = w.Widget;
 const ginwaGTK = w.ginwaGTK;
+const LayoutAlignment = w.LayoutAlignment;
 
 fn renderEyeIcon(
     widget: *Widget,
@@ -654,6 +655,42 @@ fn measureLayout(widget: *Widget) struct { width: i32, height: i32, content_widt
     return .{ .width = total_w, .height = total_h, .content_width = content_w, .content_height = content_h };
 }
 
+fn calculateRowPositions(
+    total_width: i32,
+    available_width: i32,
+    alignment: LayoutAlignment,
+) i32 {
+    const start_x = switch (alignment) {
+        .Start => 0,
+        .Center => @divTrunc(available_width - total_width, 2),
+        .End => available_width - total_width,
+        .SpaceBetween, .SpaceAround, .SpaceEvenly => {
+            // For space distribution, we return 0 and handle positioning in the loop
+            return 0;
+        },
+    };
+
+    return start_x;
+}
+
+fn calculateColumnPositions(
+    total_height: i32,
+    available_height: i32,
+    alignment: LayoutAlignment,
+) i32 {
+    const start_y = switch (alignment) {
+        .Start => 0,
+        .Center => @divTrunc(available_height - total_height, 2),
+        .End => available_height - total_height,
+        .SpaceBetween, .SpaceAround, .SpaceEvenly => {
+            // For space distribution, we return 0 and handle positioning in the loop
+            return 0;
+        },
+    };
+
+    return start_y;
+}
+
 pub fn layoutWidget(widget: *Widget, avail_w: i32, avail_h: i32) void {
     // Auto-size containers based on their children if width/height is -1 (auto-size)
     if (widget.widget_type == .Layout and widget.children != null) {
@@ -745,41 +782,243 @@ pub fn layoutWidget(widget: *Widget, avail_w: i32, avail_h: i32) void {
 
         if (widget.widget_type == .Layout) {
             if (widget.orientation == .Row) {
-                var cur_x: i32 = widget.getPaddingLeft();
+                // Calculate total children width and height
+                var total_children_width: i32 = 0;
+                var max_child_height: i32 = 0;
+                for (children.items) |child| {
+                    total_children_width += child.width;
+                    max_child_height = @max(max_child_height, child.height);
+                }
+
+                const available_width = inner_w - widget.getPaddingLeft() - widget.getPaddingRight();
+                const available_height = inner_h - widget.getPaddingTop() - widget.getPaddingBottom();
+
+                // Calculate starting X position based on horizontal alignment
+                var start_x: i32 = widget.getPaddingLeft();
+                if (widget.horizontal_alignment) |h_align| {
+                    if (h_align == .Center or h_align == .End) {
+                        start_x += calculateRowPositions(
+                            total_children_width,
+                            available_width,
+                            h_align,
+                        );
+                    }
+                }
+
                 const scroll_x = @as(i32, @intCast(widget.scroll_offset orelse 0));
 
-                for (children.items, 0..) |child, idx| {
-                    const child_w = @min(child.width, inner_w);
-                    const child_h = @min(child.height, inner_h);
+                // Handle space distribution alignments
+                if (widget.horizontal_alignment) |h_align| {
+                    if (h_align == .SpaceBetween or h_align == .SpaceAround or h_align == .SpaceEvenly) {
+                        const total_gap_space = available_width - total_children_width;
+                        const gap_count_i32 = if (h_align == .SpaceBetween)
+                            @max(child_count - 1, 0)
+                        else
+                            @max(child_count + 1, 0);
+                        const gap_size = if (gap_count_i32 > 0) @divTrunc(total_gap_space, @as(i32, @intCast(gap_count_i32))) else 0;
 
-                    // Apply scroll offset to child positioning
-                    child.x = widget.x + cur_x - scroll_x;
-                    child.y = widget.y + widget.getPaddingTop();
+                        var cur_x: i32 = switch (h_align) {
+                            .SpaceBetween => 0,
+                            .SpaceAround, .SpaceEvenly => gap_size,
+                            else => 0,
+                        };
 
-                    layoutWidget(child, child_w, child_h);
+                        for (children.items, 0..) |child, idx| {
+                            const child_w = @min(child.width, inner_w);
+                            const child_h = @min(child.height, inner_h);
 
-                    cur_x += child.width;
-                    if (idx + 1 < child_count) {
-                        cur_x += widget.gap;
+                            child.x = widget.x + start_x + cur_x - scroll_x;
+
+                            // Apply vertical alignment
+                            var child_y = widget.getPaddingTop();
+                            if (widget.vertical_alignment) |v_align| {
+                                child_y = switch (v_align) {
+                                    .Start => widget.getPaddingTop(),
+                                    .Center => widget.getPaddingTop() + @divTrunc(available_height - child.height, 2),
+                                    .End => widget.getPaddingTop() + (available_height - child.height),
+                                    else => widget.getPaddingTop(),
+                                };
+                            }
+                            child.y = widget.y + child_y;
+
+                            layoutWidget(child, child_w, child_h);
+
+                            if (idx + 1 < child_count) {
+                                const next_gap = switch (h_align) {
+                                    .SpaceBetween => gap_size,
+                                    .SpaceAround, .SpaceEvenly => gap_size,
+                                    else => widget.gap,
+                                };
+                                cur_x += child.width + next_gap;
+                            }
+                        }
+                    } else {
+                        // Handle Start, Center, End alignments
+                        var cur_x: i32 = start_x;
+
+                        for (children.items, 0..) |child, idx| {
+                            const child_w = @min(child.width, inner_w);
+                            const child_h = @min(child.height, inner_h);
+
+                            child.x = widget.x + cur_x - scroll_x;
+
+                            // Apply vertical alignment
+                            var child_y = widget.getPaddingTop();
+                            if (widget.vertical_alignment) |v_align| {
+                                child_y = switch (v_align) {
+                                    .Start => widget.getPaddingTop(),
+                                    .Center => widget.getPaddingTop() + @divTrunc(available_height - child.height, 2),
+                                    .End => widget.getPaddingTop() + (available_height - child.height),
+                                    else => widget.getPaddingTop(),
+                                };
+                            }
+                            child.y = widget.y + child_y;
+
+                            layoutWidget(child, child_w, child_h);
+
+                            cur_x += child.width;
+                            if (idx + 1 < child_count) {
+                                cur_x += widget.gap;
+                            }
+                        }
+                    }
+                } else {
+                    // No horizontal alignment - use default behavior
+                    var cur_x: i32 = widget.getPaddingLeft();
+
+                    for (children.items, 0..) |child, idx| {
+                        const child_w = @min(child.width, inner_w);
+                        const child_h = @min(child.height, inner_h);
+
+                        child.x = widget.x + cur_x - scroll_x;
+                        child.y = widget.y + widget.getPaddingTop();
+
+                        layoutWidget(child, child_w, child_h);
+
+                        cur_x += child.width;
+                        if (idx + 1 < child_count) {
+                            cur_x += widget.gap;
+                        }
                     }
                 }
             } else if (widget.orientation == .Column) {
-                var cur_y: i32 = widget.getPaddingTop();
+                // Calculate total children height and width
+                var total_children_height: i32 = 0;
+                var max_child_width: i32 = 0;
+                for (children.items) |child| {
+                    total_children_height += child.height;
+                    max_child_width = @max(max_child_width, child.width);
+                }
+
+                const available_width = inner_w - widget.getPaddingLeft() - widget.getPaddingRight();
+                const available_height = inner_h - widget.getPaddingTop() - widget.getPaddingBottom();
+
+                // Calculate starting Y position based on vertical alignment
+                var start_y: i32 = widget.getPaddingTop();
+                if (widget.vertical_alignment) |v_align| {
+                    if (v_align == .Center or v_align == .End) {
+                        start_y += calculateColumnPositions(
+                            total_children_height,
+                            available_height,
+                            v_align,
+                        );
+                    }
+                }
+
                 const scroll_y = @as(i32, @intCast(widget.scroll_offset orelse 0));
 
-                for (children.items, 0..) |child, idx| {
-                    const child_w = @min(child.width, inner_w);
-                    const child_h = @min(child.height, inner_h);
+                // Handle space distribution alignments
+                if (widget.vertical_alignment) |v_align| {
+                    if (v_align == .SpaceBetween or v_align == .SpaceAround or v_align == .SpaceEvenly) {
+                        const total_gap_space = available_height - total_children_height;
+                        const gap_count_i32 = if (v_align == .SpaceBetween)
+                            @max(child_count - 1, 0)
+                        else
+                            @max(child_count + 1, 0);
+                        const gap_size = if (gap_count_i32 > 0) @divTrunc(total_gap_space, @as(i32, @intCast(gap_count_i32))) else 0;
 
-                    child.x = widget.x + widget.getPaddingLeft();
-                    // Apply scroll offset to child positioning
-                    child.y = widget.y + cur_y - scroll_y;
+                        var cur_y: i32 = switch (v_align) {
+                            .SpaceBetween => 0,
+                            .SpaceAround, .SpaceEvenly => gap_size,
+                            else => 0,
+                        };
 
-                    layoutWidget(child, child_w, child_h);
+                        for (children.items, 0..) |child, idx| {
+                            const child_w = @min(child.width, inner_w);
+                            const child_h = @min(child.height, inner_h);
 
-                    cur_y += child.height;
-                    if (idx + 1 < child_count) {
-                        cur_y += widget.gap;
+                            child.y = widget.y + start_y + cur_y - scroll_y;
+
+                            // Apply horizontal alignment
+                            var child_x = widget.getPaddingLeft();
+                            if (widget.horizontal_alignment) |h_align| {
+                                child_x = switch (h_align) {
+                                    .Start => widget.getPaddingLeft(),
+                                    .Center => widget.getPaddingLeft() + @divTrunc(available_width - child.width, 2),
+                                    .End => widget.getPaddingLeft() + (available_width - child.width),
+                                    else => widget.getPaddingLeft(),
+                                };
+                            }
+                            child.x = widget.x + child_x;
+
+                            layoutWidget(child, child_w, child_h);
+
+                            if (idx + 1 < child_count) {
+                                const next_gap = switch (v_align) {
+                                    .SpaceBetween => gap_size,
+                                    .SpaceAround, .SpaceEvenly => gap_size,
+                                    else => widget.gap,
+                                };
+                                cur_y += child.height + next_gap;
+                            }
+                        }
+                    } else {
+                        // Handle Start, Center, End alignments
+                        var cur_y: i32 = start_y;
+
+                        for (children.items, 0..) |child, idx| {
+                            const child_w = @min(child.width, inner_w);
+                            const child_h = @min(child.height, inner_h);
+
+                            // Apply horizontal alignment
+                            var child_x = widget.getPaddingLeft();
+                            if (widget.horizontal_alignment) |h_align| {
+                                child_x = switch (h_align) {
+                                    .Start => widget.getPaddingLeft(),
+                                    .Center => widget.getPaddingLeft() + @divTrunc(available_width - child.width, 2),
+                                    .End => widget.getPaddingLeft() + (available_width - child.width),
+                                    else => widget.getPaddingLeft(),
+                                };
+                            }
+                            child.x = widget.x + child_x;
+
+                            child.y = widget.y + cur_y - scroll_y;
+
+                            layoutWidget(child, child_w, child_h);
+
+                            cur_y += child.height;
+                            if (idx + 1 < child_count) {
+                                cur_y += widget.gap;
+                            }
+                        }
+                    }
+                } else {
+                    // No vertical alignment - use default behavior
+                    var cur_y: i32 = widget.getPaddingTop();
+
+                    for (children.items, 0..) |child, idx| {
+                        const child_w = @min(child.width, inner_w);
+                        const child_h = @min(child.height, inner_h);
+
+                        child.x = widget.x + widget.getPaddingLeft();
+                        child.y = widget.y + cur_y - scroll_y;
+
+                        layoutWidget(child, child_w, child_h);
+
+                        cur_y += child.height;
+                        if (idx + 1 < child_count) {
+                            cur_y += widget.gap;
+                        }
                     }
                 }
             } else if (widget.orientation == .Stack) {

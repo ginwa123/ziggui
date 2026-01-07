@@ -214,6 +214,78 @@ pub fn main() !void {
     _ = try stackContainer.add_children(.{ stackBtn1, stackBtn2, stackBtn3 });
     _ = try tk.window.add_child(stackContainer);
 
+    // Test Row orientation with horizontal alignment - Center
+    const rowCenterAlign = try container.build(.{
+        .name = "rowCenterAlign",
+        .padding = 8,
+        .gap = 8,
+        .orientation = .Row,
+        .background_color = 0xFF444444,
+        .width = 300,
+        .height = 60,
+        .horizontal_alignment = .Center,
+        .vertical_alignment = .Center,
+    });
+    const centerBtn1 = try button.build(.{ .name = "center-btn-1", .label = "Button 1", .width = 80, .height = 40 });
+    const centerBtn2 = try button.build(.{ .name = "center-btn-2", .label = "Button 2", .width = 80, .height = 40 });
+    const centerBtn3 = try button.build(.{ .name = "center-btn-3", .label = "Button 3", .width = 80, .height = 40 });
+    _ = try rowCenterAlign.add_children(.{ centerBtn1, centerBtn2, centerBtn3 });
+    _ = try tk.window.add_child(rowCenterAlign);
+
+    // Test Row orientation with SpaceBetween alignment
+    const rowSpaceBetween = try container.build(.{
+        .name = "rowSpaceBetween",
+        .padding = 8,
+        .orientation = .Row,
+        .background_color = 0xFF666666,
+        .width = 300,
+        .height = 60,
+        .horizontal_alignment = .SpaceBetween,
+        .vertical_alignment = .Center,
+    });
+    const spaceBtn1 = try button.build(.{ .name = "space-btn-1", .label = "A", .width = 60, .height = 40 });
+    const spaceBtn2 = try button.build(.{ .name = "space-btn-2", .label = "B", .width = 60, .height = 40 });
+    const spaceBtn3 = try button.build(.{ .name = "space-btn-3", .label = "C", .width = 60, .height = 40 });
+    _ = try rowSpaceBetween.add_children(.{ spaceBtn1, spaceBtn2, spaceBtn3 });
+    _ = try tk.window.add_child(rowSpaceBetween);
+
+    // Test Column orientation with vertical alignment - End
+    const columnEndAlign = try container.build(.{
+        .name = "columnEndAlign",
+        .padding = 8,
+        .gap = 8,
+        .orientation = .Column,
+        .background_color = 0xFF888888,
+        .width = 250,
+        .height = 150,
+        .horizontal_alignment = .End,
+        .vertical_alignment = .SpaceAround,
+        .scrollable = true,
+    });
+    const colBtn1 = try button.build(.{ .name = "col-btn-1", .label = "Item 1", .width = 120, .height = 30 });
+    const colBtn2 = try button.build(.{ .name = "col-btn-2", .label = "Item 2", .width = 120, .height = 30 });
+    const colBtn3 = try button.build(.{ .name = "col-btn-3", .label = "Item 3", .width = 120, .height = 30 });
+    _ = try columnEndAlign.add_children(.{ colBtn1, colBtn2, colBtn3 });
+    _ = try tk.window.add_child(columnEndAlign);
+
+    // Test Column orientation with SpaceEvenly alignment
+    const columnSpaceEvenly = try container.build(.{
+        .name = "columnSpaceEvenly",
+        .padding = 8,
+        .orientation = .Column,
+        .background_color = 0xFFAAAAAA,
+        .width = 200,
+        .height = 150,
+        .horizontal_alignment = .Center,
+        .vertical_alignment = .SpaceEvenly,
+        .scrollable = true,
+    });
+    const evenBtn1 = try button.build(.{ .name = "even-btn-1", .label = "One", .width = 100, .height = 30 });
+    const evenBtn2 = try button.build(.{ .name = "even-btn-2", .label = "Two", .width = 100, .height = 30 });
+    const evenBtn3 = try button.build(.{ .name = "even-btn-3", .label = "Three", .width = 100, .height = 30 });
+    _ = try columnSpaceEvenly.add_children(.{ evenBtn1, evenBtn2, evenBtn3 });
+    _ = try tk.window.add_child(columnSpaceEvenly);
+
     std.debug.print("Event loop!\n", .{});
     try tk.event_loop();
 
