@@ -5,6 +5,7 @@ const Widget = @import("widget.zig").Widget;
 const Orientation = @import("widget.zig").Orientation;
 const ui = @import("widget.zig");
 const c = @import("c.zig").c;
+const ginwaGTK = @import("widget.zig").ginwaGTK;
 
 const button = @import("components/button.zig");
 const input = @import("components/input.zig");
@@ -45,23 +46,18 @@ pub fn main() !void {
     defer tk.free();
 
     const row_icon = try container.build(.{
-        .name = "row",
+        .id = "row",
         // .background_color = 0xFF00FF00,
         .gap = 8,
         .orientation = .Row,
     });
-    const icon1 = try icon.build(.{
-        .name = "icon1",
-        .src_image = "assets/signing_903481.png",
-        .width = 21,
-        .height = 21
-    });
+    const icon1 = try icon.build(.{ .name = "icon1", .src_image = "assets/signing_903481.png", .width = 21, .height = 21 });
 
     _ = try row_icon.add_children(.{icon1});
     _ = try tk.window.add_child(row_icon);
 
     const longListColumn = try container.build(.{
-        .name = "longListColumn",
+        .id = "longListColumn",
         .padding = 8,
         .gap = 8,
         .orientation = .Column,
@@ -99,7 +95,7 @@ pub fn main() !void {
     const inputPassword = try input.build(.{ .name = "inputPassword", .max_input_text_length = 255, .placeholder = "password", .padding = 8, .input_text_type = .Password });
 
     const columnLogin = try container.build(.{
-        .name = "columnLogin",
+        .id = "columnLogin",
         .padding = 8,
         .gap = 8,
         .orientation = .Row,
@@ -115,7 +111,7 @@ pub fn main() !void {
     });
 
     const rowCombineText = try container.build(.{
-        .name = "row",
+        .id = "row",
         .background_color = 0xFF00FF00,
         .gap = 8,
         .orientation = .Row,
@@ -163,7 +159,7 @@ pub fn main() !void {
 
     _ = try tk.window.add_child(btn3);
 
-    const rowwww = try container.build(.{ .name = "column1", .padding = 8, .gap = 14, .orientation = .Row });
+    const rowwww = try container.build(.{ .id = "column1", .padding = 8, .gap = 14, .orientation = .Row });
 
     const btnColumn11 = try button.build(
         .{ .name = "button1", .background_color = 0xFFFF7F00, .label = "orange", .border_radius = 8 },
@@ -192,7 +188,7 @@ pub fn main() !void {
 
     // Test Stack orientation - children will overlap each other
     const stackContainer = try container.build(.{
-        .name = "stack",
+        .id = "stack",
         .padding = 8,
         .gap = 8,
         .orientation = .Stack,
@@ -216,12 +212,12 @@ pub fn main() !void {
 
     // Test Row orientation with horizontal alignment - Center
     const rowCenterAlign = try container.build(.{
-        .name = "rowCenterAlign",
+        .id = "rowCenterAlign",
         .padding = 8,
         .gap = 8,
         .orientation = .Row,
         .background_color = 0xFF444444,
-        .width = 300,
+        .width = tk.win_width,
         .height = 60,
         .horizontal_alignment = .Center,
         .vertical_alignment = .Center,
@@ -234,7 +230,7 @@ pub fn main() !void {
 
     // Test Row orientation with SpaceBetween alignment
     const rowSpaceBetween = try container.build(.{
-        .name = "rowSpaceBetween",
+        .id = "rowSpaceBetween",
         .padding = 8,
         .orientation = .Row,
         .background_color = 0xFF666666,
@@ -251,7 +247,7 @@ pub fn main() !void {
 
     // Test Column orientation with vertical alignment - End
     const columnEndAlign = try container.build(.{
-        .name = "columnEndAlign",
+        .id = "columnEndAlign",
         .padding = 8,
         .gap = 8,
         .orientation = .Column,
@@ -270,7 +266,7 @@ pub fn main() !void {
 
     // Test Column orientation with SpaceEvenly alignment
     const columnSpaceEvenly = try container.build(.{
-        .name = "columnSpaceEvenly",
+        .id = "columnSpaceEvenly",
         .padding = 8,
         .orientation = .Column,
         .background_color = 0xFFAAAAAA,
@@ -286,8 +282,19 @@ pub fn main() !void {
     _ = try columnSpaceEvenly.add_children(.{ evenBtn1, evenBtn2, evenBtn3 });
     _ = try tk.window.add_child(columnSpaceEvenly);
 
-    std.debug.print("Event loop!\n", .{});
-    try tk.event_loop();
+
+
+    tk.event_loop_callback = struct {
+        // This callback will be called every time the event loop is called
+        // You can use this to update the UI based on the current state of the app
+        fn callback(app: *ginwaGTK) void {
+            if (app.find_widget_by_id("rowCenterAlign")) |widget_row_center_align| {
+                widget_row_center_align.width = app.win_width;
+            }
+        }
+    }.callback;
+
+    try tk.event_loop(); // Run the event loop
 
     std.debug.print("App closed!\n", .{});
 }

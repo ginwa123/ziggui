@@ -6,7 +6,7 @@ const Orientation = w.Orientation;
 const LayoutAlignment = w.LayoutAlignment;
 
 pub const PropsContainer = struct {
-    name: []const u8 = "",
+    id: []const u8 = "",
     width: i32 = -1,  // -1 means auto-size based on children
     height: i32 = -1, // -1 means auto-size based on children
     text: []const u8 = "",
@@ -28,7 +28,7 @@ pub fn build(props: PropsContainer) !*Widget {
     const widget = try allocator.create(Widget);
     widget.* = .{
         .guid = try random.randomId(allocator),
-        .name = props.name,
+        .id = props.id,
         .width = props.width,
         .height = props.height,
         .desired_width = if (props.width >= 0) props.width else null,

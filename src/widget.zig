@@ -221,6 +221,8 @@ pub const ginwaGTK = struct {
     cursor_visible: bool = true,
     last_cursor_blink: i64 = 0,
     cursor_blink_interval: i64 = 500_000_000, // 500ms in nanoseconds
+    //
+    event_loop_callback: ?*const fn (*ginwaGTK) void = null,
 
     pub fn event_loop(app: *ginwaGTK) !void {
         return wr.renderEventLoop(app);
@@ -263,6 +265,21 @@ pub const ginwaGTK = struct {
     pub fn allocator(self: *ginwaGTK) std.mem.Allocator {
         _ = self;
         return default_allocator;
+    }
+
+    pub fn trigger_event_callback(self: *ginwaGTK) void {
+        if (self.event_loop_callback) |callback| {
+            callback(self);
+        }
+    }
+
+    pub fn find_widget_by_id(self: *ginwaGTK, id: []const u8) ?*Widget {
+        const widget = self.window.find_widget_by_id(id);
+        if (widget) |found_widget| {
+            return found_widget;
+        }
+
+        return null;
     }
 };
 
@@ -433,22 +450,16 @@ pub const DecodedImage = struct {
     file_path: []const u8,
 };
 
+pub const WidthType = enum { Flexible, Expanded };
+pub const HeightType = enum { Flexible, Expanded };
 
 // to be used in layout for children items
-pub const LayoutAlignment = enum {
-    Start,
-    Center,
-    End,
-    SpaceBetween,
-    SpaceAround,
-    SpaceEvenly
-};
+pub const LayoutAlignment = enum { Start, Center, End, SpaceBetween, SpaceAround, SpaceEvenly };
 
 pub const Widget = struct {
     guid: []const u8 = "",
     parent_guid: []const u8 = "",
-    name: []const u8 = "root",
-    orientation: ?Orientation = null,
+    id: []const u8 = "root",
 
     gap: i32 = 0,
     children: ?std.ArrayList(*Widget) = null,
@@ -470,6 +481,7 @@ pub const Widget = struct {
     padding_bottom: ?i32 = null,
     horizontal_alignment: ?LayoutAlignment = null,
     vertical_alignment: ?LayoutAlignment = null,
+    orientation: ?Orientation = null,
 
     input_text: []const u8 = "",
     input_text_type: ?InputTextType = null,
@@ -668,6 +680,22 @@ pub const Widget = struct {
             list.deinit(default_allocator);
         }
     }
-};
 
-// Widget constructors
+    pub fn find_widget_by_id(self: *Widget, id: []const u8) ?*Widget {
+        if (id.len == 0) return null;
+        if (std.mem.eql(u8, self.id, id)) {
+            return self;
+        }
+
+        if (self.children) |children| {
+            for (children.items) |child| {
+                const found = child.find_widget_by_id(id);
+                if (found) |found_widget| {
+                    return found_widget;
+                }
+            }
+        }
+
+        return null;
+    }
+};

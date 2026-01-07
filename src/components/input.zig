@@ -40,7 +40,7 @@ pub fn build(props: PropsInput) !*Widget {
 
     widget.* = .{
         .guid = try random.randomId(allocator),
-        .name = props.name,
+        .id = props.name,
         .width = props.width,
         .height = props.height,
         .desired_width = if (props.width >= 0) props.width else null,

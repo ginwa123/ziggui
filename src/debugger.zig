@@ -6,7 +6,7 @@ pub fn printWidget(widget: *w.Widget) void {
     std.debug.print("Widget:\n", .{});
     std.debug.print("  guid: {s}\n", .{widget.guid}); // Ubah {any} jadi {s}
     std.debug.print("  parent_guid: {s}\n", .{widget.parent_guid}); // Ubah {any} jadi {s}
-    std.debug.print("  name: {s}\n", .{widget.name}); // Ubah {any} jadi {s}
+    std.debug.print("  id: {s}\n", .{widget.id}); // Ubah {any} jadi {s}
     std.debug.print("  text: {s}\n", .{widget.text}); // Ubah {} jadi {s}
     std.debug.print("  font_size: {}\n", .{widget.font_size});
     std.debug.print("  font_type: {s}\n", .{widget.font_type}); // Ubah {any} jadi {s}

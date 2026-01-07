@@ -24,7 +24,7 @@ pub fn build(props: PropsText) !*Widget {
     // Initialize empty input text
     widget.* = .{
         .guid = try random.randomId(alloc),
-        .name = props.name,
+        .id = props.name,
         .width = props.width,
         .height = props.height,
         .desired_width = if (props.width >= 0) props.width else null,

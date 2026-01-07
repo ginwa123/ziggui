@@ -1204,6 +1204,9 @@ pub fn renderEventLoop(app: *ginwaGTK) void {
                 c.wl_display_cancel_read(app.display);
             }
         }
+
+        // trigger callback
+        app.trigger_event_callback();
     }
 }
 

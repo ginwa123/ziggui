@@ -125,7 +125,7 @@ fn pointer_motion(
     }
 
     if (app.hovered_widget) |hovered_widget| {
-        std.debug.print("Hover widget: {s}\n", .{hovered_widget.name});
+        std.debug.print("Hover widget: {s}\n", .{hovered_widget.id});
         hovered_widget.backround_is_hovered = true;
 
         if (hovered_widget.background_hover_color) |hover_color| {
@@ -241,7 +241,7 @@ fn pointer_button(
             const previous_focus = app.focused_widget;
 
             if (w.findWidgetAt(&app.window, app.pointer_x, app.pointer_y)) |clicked_widget| {
-                std.debug.print("Clicked on widget: {s}\n", .{clicked_widget.name});
+                std.debug.print("Clicked on widget: {s}\n", .{clicked_widget.id});
 
                 // Handle scrollbar drag
                 var scrollable_widget = findScrollableAncestor(clicked_widget) orelse clicked_widget;
@@ -340,7 +340,7 @@ fn pointer_button(
 
                     // wr.redraw(app);
 
-                    std.debug.print("Input focused: {s}, cursor at: {}\n", .{ clicked_widget.name, clicked_widget.cursor_position });
+                    std.debug.print("Input focused: {s}, cursor at: {}\n", .{ clicked_widget.id, clicked_widget.cursor_position });
                 } else if (clicked_widget.widget_type == .Button) {
                     clicked_widget.on_click_backgroud_is_hovered = true;
                     app.mouse_dragging = false;
