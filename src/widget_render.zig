@@ -666,33 +666,45 @@ pub fn layoutWidget(widget: *Widget, avail_w: i32, avail_h: i32) void {
     }
 
     // For root widget, always use available dimensions
-    var final_w = if (avail_w > 0) avail_w else widget.width;
-    var final_h = if (avail_h > 0) avail_h else widget.height;
+    var layout_w = if (avail_w > 0) avail_w else widget.width;
+    var layout_h = if (avail_h > 0) avail_h else widget.height;
 
     // If this looks like a root widget (parent_guid is empty), force it to use available space
     if (widget.parent_guid.len == 0 and avail_w > 0 and avail_h > 0) {
-        final_w = avail_w;
-        final_h = avail_h;
+        layout_w = avail_w;
+        layout_h = avail_h;
     } else {
-        // For child widgets: auto-sized widgets use their natural size, explicit-sized widgets can be constrained
+        // For child widgets: preserve desired size and only constrain if space is limited
         if (avail_w > 0) {
-            if (widget.width >= 0) {
-                // Explicit size - can be constrained
-                final_w = @min(widget.width, avail_w);
+            if (widget.desired_width) |desired_w| {
+                // Has explicit desired size - restore to it if space allows, otherwise constrain
+                layout_w = @min(desired_w, avail_w);
+            } else if (widget.width >= 0) {
+                // No desired size but has explicit width - use it but can be constrained
+                layout_w = @min(widget.width, avail_w);
             }
             // else: auto-sized, use widget.width (already set from measureLayout)
         }
         if (avail_h > 0) {
-            if (widget.height >= 0) {
-                // Explicit size - can be constrained
-                final_h = @min(widget.height, avail_h);
+            if (widget.desired_height) |desired_h| {
+                // Has explicit desired size - restore to it if space allows, otherwise constrain
+                layout_h = @min(desired_h, avail_h);
+            } else if (widget.height >= 0) {
+                // No desired size but has explicit height - use it but can be constrained
+                layout_h = @min(widget.height, avail_h);
             }
             // else: auto-sized, use widget.height (already set from measureLayout)
         }
     }
 
-    widget.width = final_w;
-    widget.height = final_h;
+    // Only update widget dimensions if they don't have desired values
+    // This preserves the original desired size for restoration when space is available
+    if (widget.desired_width == null) {
+        widget.width = layout_w;
+    }
+    if (widget.desired_height == null) {
+        widget.height = layout_h;
+    }
 
     // Store content dimensions for scrollable containers
     if (widget.widget_type == .Layout and widget.isScrollable()) {
@@ -702,7 +714,7 @@ pub fn layoutWidget(widget: *Widget, avail_w: i32, avail_h: i32) void {
 
         // Clamp scroll offset to valid range
         if (widget.vertical_scroll_enabled or widget.scrollable) {
-            const max_scroll_y = @max(0, widget.getScrollableContentHeight() - (widget.height - widget.getPaddingVertical()));
+            const max_scroll_y = @max(0, widget.getScrollableContentHeight() - (layout_h - widget.getPaddingVertical()));
             if (widget.scroll_offset == null) {
                 widget.scroll_offset = 0; // Start at top
             } else if (widget.scroll_offset.? > @as(usize, @intCast(max_scroll_y))) {
@@ -714,8 +726,8 @@ pub fn layoutWidget(widget: *Widget, avail_w: i32, avail_h: i32) void {
         }
     }
 
-    const inner_w = final_w - widget.getPaddingHorizontal();
-    const inner_h = final_h - widget.getPaddingVertical();
+    const inner_w = layout_w - widget.getPaddingHorizontal();
+    const inner_h = layout_h - widget.getPaddingVertical();
 
     if (widget.children == null) return;
     if (widget.children) |*children| {

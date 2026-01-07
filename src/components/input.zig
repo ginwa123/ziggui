@@ -43,6 +43,8 @@ pub fn build(props: PropsInput) !*Widget {
         .name = props.name,
         .width = props.width,
         .height = props.height,
+        .desired_width = if (props.width >= 0) props.width else null,
+        .desired_height = if (props.height >= 0) props.height else null,
         .input_text = input_text,
         .input_text_type = props.input_text_type,
         .placeholder = props.placeholder,

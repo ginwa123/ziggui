@@ -448,6 +448,8 @@ pub const Widget = struct {
     y: i32 = 0,
     width: i32 = -1, // -1 means auto-size
     height: i32 = -1, // -1 means auto-size
+    desired_width: ?i32 = null, // Original desired width (for layout restoration)
+    desired_height: ?i32 = null, // Original desired height (for layout restoration)
 
     padding: i32 = 0,
     padding_left: ?i32 = null,
