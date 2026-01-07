@@ -443,6 +443,7 @@ pub const Widget = struct {
     children: ?std.ArrayList(*Widget) = null,
 
     widget_type: WidgetType = .Layout,
+    is_parent: bool = false,
 
     x: i32 = 0,
     y: i32 = 0,

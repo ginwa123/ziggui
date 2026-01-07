@@ -70,7 +70,6 @@ fn renderEyeIcon(
     // }
 }
 
-
 fn renderIconImage(
     widget: *Widget,
     pixels: [*]u32,
@@ -660,8 +659,18 @@ pub fn layoutWidget(widget: *Widget, avail_w: i32, avail_h: i32) void {
     if (widget.widget_type == .Layout and widget.children != null) {
         if (widget.width < 0 or widget.height < 0) {
             const measured = measureLayout(widget);
-            if (widget.width < 0) widget.width = measured.content_width;
-            if (widget.height < 0) widget.height = measured.content_height;
+            if (widget.width < 0) {
+                widget.width = measured.content_width;
+                if (!widget.is_parent) {
+                    widget.desired_width = widget.width;
+                }
+            }
+            if (widget.height < 0) {
+                widget.height = measured.content_height;
+                if (!widget.is_parent) {
+                    widget.desired_height = widget.height;
+                }
+            }
         }
     }
 
@@ -1065,12 +1074,5 @@ pub fn decode_image(alloc: std.mem.Allocator, imagePath: []const u8) !w.DecodedI
 
     std.debug.print("Image loaded: {}x{}, channels={}\n", .{ width, height, channels });
 
-    return w.DecodedImage{
-        .width = @intCast(width),
-        .height = @intCast(height),
-        .rgba = pixels,
-        .file_buffer = data,
-        .file_path = imagePath
-    };
+    return w.DecodedImage{ .width = @intCast(width), .height = @intCast(height), .rgba = pixels, .file_buffer = data, .file_path = imagePath };
 }
-

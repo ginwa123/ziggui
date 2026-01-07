@@ -37,6 +37,7 @@ pub fn main() !void {
             .padding = 8,
             .gap = 8,
             .scrollable = true,
+            .is_parent = true,
         },
     };
 
