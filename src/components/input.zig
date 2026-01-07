@@ -4,7 +4,6 @@ const random = @import("../random.zig");
 const Widget = w.Widget;
 const ginwaGTK = w.ginwaGTK;
 
-
 // Input component constructor
 pub const PropsInput = struct {
     name: []const u8 = "",
@@ -28,18 +27,18 @@ pub const PropsInput = struct {
     input_text_type: ?w.InputTextType = null,
 };
 
-pub fn build(props: PropsInput) !*Widget {
+pub fn build(props: PropsInput) *Widget {
     const allocator = w.default_allocator;
-    const widget = try allocator.create(Widget);
+    const widget = allocator.create(Widget) catch unreachable;
 
     // Allocate and duplicate input text so we own the memory
     const input_text = if (props.input_text.len > 0)
-        try allocator.dupe(u8, props.input_text)
+        allocator.dupe(u8, props.input_text) catch unreachable
     else
         "";
 
     widget.* = .{
-        .guid = try random.randomId(allocator),
+        .guid = random.randomId(allocator) catch unreachable,
         .id = props.name,
         .width = props.width,
         .height = props.height,

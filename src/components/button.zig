@@ -17,11 +17,11 @@ pub const PropsButton = struct {
     on_click_hover_color: ?u32 = null,
 };
 
-pub fn build(props: PropsButton) !*Widget {
+pub fn build(props: PropsButton) *Widget {
     const allocator = w.default_allocator;
-    const widget = try allocator.create(Widget);
+    const widget = allocator.create(Widget) catch unreachable;
     widget.* = .{
-        .guid = try random.randomId(allocator),
+        .guid = random.randomId(allocator) catch unreachable,
         .id = props.name,
         .width = props.width,
         .height = props.height,

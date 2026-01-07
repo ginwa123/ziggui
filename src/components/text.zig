@@ -1,10 +1,7 @@
-
-
 const std = @import("std");
 const w = @import("../widget.zig");
 const random = @import("../random.zig");
 const Widget = w.Widget;
-
 
 // Input component constructor
 pub const PropsText = struct {
@@ -17,13 +14,13 @@ pub const PropsText = struct {
     background_color: u32 = 0x00000000, // Transparent by default
 };
 
-pub fn build(props: PropsText) !*Widget {
+pub fn build(props: PropsText) *Widget {
     const alloc = w.default_allocator;
-    const widget = try alloc.create(Widget);
+    const widget = alloc.create(Widget) catch unreachable;
 
     // Initialize empty input text
     widget.* = .{
-        .guid = try random.randomId(alloc),
+        .guid = random.randomId(alloc) catch unreachable,
         .id = props.name,
         .width = props.width,
         .height = props.height,

@@ -170,6 +170,7 @@ pub const ginwaGTK = struct {
     default_cursor: ?*c.wl_cursor = null,
     text_cursor: ?*c.wl_cursor = null,
     hand_cursor: ?*c.wl_cursor = null,
+    current_sursor: [*c]const u8 = "",
 
     // screen
     old_buffer: ?*c.wl_buffer = null,
@@ -449,9 +450,6 @@ pub const DecodedImage = struct {
     file_buffer: []u8,
     file_path: []const u8,
 };
-
-pub const WidthType = enum { Flexible, Expanded };
-pub const HeightType = enum { Flexible, Expanded };
 
 // to be used in layout for children items
 pub const LayoutAlignment = enum { Start, Center, End, SpaceBetween, SpaceAround, SpaceEvenly };

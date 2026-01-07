@@ -117,7 +117,7 @@ fn pointer_motion(
 
     if (previous_hovered_widget) |prev| {
         if (app.hovered_widget) |hovered_widget| {
-            if (prev != hovered_widget) {
+            if (prev != hovered_widget and hovered_widget.background_hover_color != null) {
                 prev.backround_is_hovered = false;
                 wr.redraw(app);
             }
@@ -125,7 +125,6 @@ fn pointer_motion(
     }
 
     if (app.hovered_widget) |hovered_widget| {
-        std.debug.print("Hover widget: {s}\n", .{hovered_widget.id});
         hovered_widget.backround_is_hovered = true;
 
         if (hovered_widget.background_hover_color) |hover_color| {
@@ -503,6 +502,9 @@ fn set_cursor_for_widget(app: *ginwaGTK, widget: *Widget, serial: u32) void {
 
     if (app.wl_pointer) |pointer| {
         if (app.cursor_theme) |cursor_theme| {
+            if (app.current_sursor == cursor_name) return;
+            app.current_sursor = cursor_name;
+
             const cursor = c.wl_cursor_theme_get_cursor(cursor_theme, cursor_name);
             const image = cursor.*.images[0];
 

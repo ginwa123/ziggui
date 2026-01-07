@@ -1141,6 +1141,7 @@ pub fn renderEventLoop(app: *ginwaGTK) void {
             }
         }
 
+        // input blinking
         if (should_blink and app.key_repeat_active == false) {
             // std.debug.print("Blinking cursor\n", .{});
             // Cancel the read since we're going to redraw
@@ -1199,14 +1200,13 @@ pub fn renderEventLoop(app: *ginwaGTK) void {
                 // Events are ready, read them
                 _ = c.wl_display_read_events(app.display);
                 _ = c.wl_display_dispatch_pending(app.display);
+                app.trigger_event_callback();
+                std.debug.print("Event loop trigger callback time {d}\n", .{utils.getNanoTime()});
             } else {
                 // Timeout or error, cancel the read
                 c.wl_display_cancel_read(app.display);
             }
         }
-
-        // trigger callback
-        app.trigger_event_callback();
     }
 }
 

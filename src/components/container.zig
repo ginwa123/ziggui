@@ -7,7 +7,7 @@ const LayoutAlignment = w.LayoutAlignment;
 
 pub const PropsContainer = struct {
     id: []const u8 = "",
-    width: i32 = -1,  // -1 means auto-size based on children
+    width: i32 = -1, // -1 means auto-size based on children
     height: i32 = -1, // -1 means auto-size based on children
     text: []const u8 = "",
     background_color: u32 = 0x00000000, // Transparent by default
@@ -23,11 +23,11 @@ pub const PropsContainer = struct {
     scrollbar_width: i32 = 12,
 };
 
-pub fn build(props: PropsContainer) !*Widget {
+pub fn build(props: PropsContainer) *Widget {
     const allocator = w.default_allocator;
-    const widget = try allocator.create(Widget);
+    const widget = allocator.create(Widget) catch unreachable;
     widget.* = .{
-        .guid = try random.randomId(allocator),
+        .guid = random.randomId(allocator) catch unreachable,
         .id = props.id,
         .width = props.width,
         .height = props.height,
