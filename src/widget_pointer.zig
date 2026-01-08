@@ -355,7 +355,7 @@ fn pointer_button(
                     app.mouse_click_count = 0;
                 }
 
-                clicked_widget.trigger_click();
+                clicked_widget.trigger_click(app);
             } else {
                 app.focused_widget = null;
             }

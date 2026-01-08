@@ -13,9 +13,10 @@ const text = @import("components/text.zig");
 const container = @import("components/container.zig");
 const icon = @import("components/icon.zig");
 
-fn myButtonCallback(widget: *Widget, data: ?*anyopaque) void {
+fn myButtonCallback(app: *ginwaGTK, widget: *Widget, data: ?*anyopaque) void {
     _ = widget;
     _ = data;
+    _ = app;
 }
 
 fn onInputTextChange(input_text: []const u8, data: ?*anyopaque) void {
@@ -211,8 +212,9 @@ pub fn main() !void {
     _ = try tk.window.add_child(stackContainer);
 
     // Test Row orientation with horizontal alignment - Center
+    const idRowCenterAlign = "rowCenterAlign";
     const rowCenterAlign = container.build(.{
-        .id = "rowCenterAlign",
+        .id = idRowCenterAlign,
         .padding = 8,
         .gap = 8,
         .orientation = .Row,
@@ -222,9 +224,39 @@ pub fn main() !void {
         .horizontal_alignment = .Center,
         .vertical_alignment = .Center,
     });
-    const centerBtn1 = button.build(.{ .name = "center-btn-1", .label = "Button 1", .width = 80, .height = 40 });
-    const centerBtn2 = button.build(.{ .name = "center-btn-2", .label = "Button 2", .width = 80, .height = 40 });
-    const centerBtn3 = button.build(.{ .name = "center-btn-3", .label = "Button 3", .width = 80, .height = 40 });
+    const centerBtn1 = button.build(.{ .name = "center-btn-1", .label = "Start", .width = 80, .height = 40 });
+    centerBtn1.on_click = struct {
+        fn callback(app: *ginwaGTK, widget: *Widget, data: ?*anyopaque) void {
+            _ = widget;
+            _ = data;
+            const widget1 = app.find_widget_by_id("rowCenterAlign");
+            if (widget1) |widget_layout| {
+                widget_layout.horizontal_alignment = .Start;
+            }
+       }
+    }.callback;
+    const centerBtn2 = button.build(.{ .name = "center-btn-2", .label = "Center", .width = 80, .height = 40 });
+    centerBtn2.on_click = struct {
+        fn callback(app: *ginwaGTK, widget: *Widget, data: ?*anyopaque) void {
+            _ = widget;
+            _ = data;
+            const widget1 = app.find_widget_by_id("rowCenterAlign");
+            if (widget1) |widget_layout| {
+                widget_layout.horizontal_alignment = .Center;
+            }
+        }
+    }.callback;
+    const centerBtn3 = button.build(.{ .name = "center-btn-3", .label = "End", .width = 80, .height = 40 });
+    centerBtn3.on_click = struct {
+        fn callback(app: *ginwaGTK, widget: *Widget, data: ?*anyopaque) void {
+            _ = widget;
+            _ = data;
+            const widget1 = app.find_widget_by_id("rowCenterAlign");
+            if (widget1) |widget_layout| {
+                widget_layout.horizontal_alignment = .End;
+            }
+        }
+    }.callback;
     _ = try rowCenterAlign.add_children(.{ centerBtn1, centerBtn2, centerBtn3 });
     _ = try tk.window.add_child(rowCenterAlign);
 
@@ -286,7 +318,7 @@ pub fn main() !void {
         // This callback will be called every time the event loop is called
         // You can use this to update the UI based on the current state of the app
         fn callback(app: *ginwaGTK) void {
-            const wdiget_1 = app.find_widget_by_id("rowCenterAlign");
+            const wdiget_1 = app.find_widget_by_id(idRowCenterAlign);
             if (wdiget_1) |widget_row_center_align| {
                 widget_row_center_align.width = app.win_width;
             }

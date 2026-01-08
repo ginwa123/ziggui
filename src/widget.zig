@@ -282,6 +282,25 @@ pub const ginwaGTK = struct {
 
         return null;
     }
+
+    pub fn find_widget(self: *ginwaGTK, widget: *Widget) ?*Widget {
+        const guid = widget.guid;
+        const f_widget = self.window.find_widget_by_guid(guid);
+        if (f_widget) |found_widget| {
+            return found_widget;
+        }
+
+        return null;
+    }
+
+    pub fn find_widget_by_guid(self: *ginwaGTK, guid: []const u8) ?*Widget {
+        const f_widget = self.window.find_widget_by_guid(guid);
+        if (f_widget) |found_widget| {
+            return found_widget;
+        }
+
+        return null;
+    }
 };
 
 pub fn findWidgetAt(widget: *Widget, x: f64, y: f64) ?*Widget {
@@ -502,7 +521,7 @@ pub const Widget = struct {
     border_color: ?u32 = null,
     border_width: ?i32 = 0,
 
-    on_click: ?*const fn (*Widget, ?*anyopaque) void = null,
+    on_click: ?*const fn (*ginwaGTK, *Widget, ?*anyopaque) void = null,
     click_data: ?*anyopaque = null,
 
     on_input_text_change: ?*const fn (input_text: []const u8, data: ?*anyopaque) void = null,
@@ -635,9 +654,9 @@ pub const Widget = struct {
             y <= @as(f64, @floatFromInt(rect.y + rect.height));
     }
 
-    pub fn trigger_click(self: *Widget) void {
+    pub fn trigger_click(self: *Widget, app: *ginwaGTK) void {
         if (self.on_click) |callback| {
-            callback(self, self.click_data);
+            callback(app, self, self.click_data);
         }
     }
 
@@ -696,4 +715,23 @@ pub const Widget = struct {
 
         return null;
     }
+
+    pub fn find_widget_by_guid(self: *Widget, guid: []const u8) ?*Widget {
+        if (guid.len == 0) return null;
+        if (std.mem.eql(u8, self.guid, guid)) {
+            return self;
+        }
+
+        if (self.children) |children| {
+            for (children.items) |child| {
+                const found = child.find_widget_by_guid(guid);
+                if (found) |found_widget| {
+                    return found_widget;
+                }
+            }
+        }
+
+        return null;
+    }
+
 };
