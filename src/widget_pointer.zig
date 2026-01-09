@@ -4,8 +4,9 @@ const utils = @import("utils.zig");
 const w = @import("widget.zig");
 const wr = @import("widget_render.zig");
 const c = w.c;
-const ginwaGTK = w.ginwaGTK;
+const Application = w.Application;
 const Widget = w.Widget;
+const Window = w.Window;
 
 fn pointer_enter(
     data: ?*anyopaque,
@@ -17,7 +18,7 @@ fn pointer_enter(
 ) callconv(.c) void {
     _ = pointer;
     _ = surface;
-    const app: *ginwaGTK = @ptrCast(@alignCast(data.?));
+    const app: *Application = @ptrCast(@alignCast(data.?));
     app.last_serial = serial;
 
     std.debug.print("Pointer ENTER surface at ({d:.1}, {d:.1})\n", .{
@@ -34,15 +35,8 @@ fn pointer_leave(
 ) callconv(.c) void {
     _ = pointer;
     _ = surface;
-    std.debug.print("Pointer LEAVE surface\n", .{});
-    const app: *ginwaGTK = @ptrCast(@alignCast(data.?));
-
-    app.last_serial = serial;
-    if (app.hovered_widget) |hovered_widget| {
-        hovered_widget.backround_is_hovered = false;
-        app.hovered_widget = null;
-        wr.redraw(app);
-    }
+    _ = data;
+    _ = serial;
 }
 
 fn pointer_motion(
@@ -52,87 +46,84 @@ fn pointer_motion(
     surface_x: c.wl_fixed_t,
     surface_y: c.wl_fixed_t,
 ) callconv(.c) void {
-    _ = pointer;
     _ = time;
-    std.debug.print("Pointer motion: ({d:.1}, {d:.1})\n", .{
-        c.wl_fixed_to_double(surface_x),
-        c.wl_fixed_to_double(surface_y),
-    });
-
-    const app: *ginwaGTK = @ptrCast(@alignCast(data.?));
+    _ = pointer;
+    const app: *Application = @ptrCast(@alignCast(data.?));
 
     app.pointer_x = c.wl_fixed_to_double(surface_x);
     app.pointer_y = c.wl_fixed_to_double(surface_y);
 
-    // Handle scrollbar dragging
-    if (w.findWidgetAt(&app.window, app.pointer_x, app.pointer_y)) |clicked_widget| {
-        var scrollable_widget = findScrollableAncestor(clicked_widget) orelse clicked_widget;
+    if (app.focused_window) |focused_window| {
+        if (focused_window.focused_widget) |widget| {
+            // Handle scrollbar dragging
+            if (w.findWidgetAt(widget, app.pointer_x, app.pointer_y)) |clicked_widget| {
+                var scrollable_widget = findScrollableAncestor(clicked_widget) orelse clicked_widget;
 
-        if (scrollable_widget.is_dragging_scrollbar) {
-            const drag_delta = @as(i32, @intFromFloat(app.pointer_y)) - scrollable_widget.scrollbar_drag_start;
-            const content_h = scrollable_widget.getScrollableContentHeight();
-            const viewport_h = scrollable_widget.height - scrollable_widget.getPaddingVertical();
-            const max_scroll = @max(0, content_h - viewport_h);
+                if (scrollable_widget.is_dragging_scrollbar) {
+                    const drag_delta = @as(i32, @intFromFloat(app.pointer_y)) - scrollable_widget.scrollbar_drag_start;
+                    const content_h = scrollable_widget.getScrollableContentHeight();
+                    const viewport_h = scrollable_widget.height - scrollable_widget.getPaddingVertical();
+                    const max_scroll = @max(0, content_h - viewport_h);
 
-            // Calculate scrollbar thumb movement ratio
-            const scrollbar_track_h = viewport_h - scrollable_widget.scrollbar_width;
-            const scroll_ratio = if (scrollbar_track_h > 0)
-                @as(f64, @floatFromInt(drag_delta)) / @as(f64, @floatFromInt(scrollbar_track_h))
-            else
-                0.0;
+                    // Calculate scrollbar thumb movement ratio
+                    const scrollbar_track_h = viewport_h - scrollable_widget.scrollbar_width;
+                    const scroll_ratio = if (scrollbar_track_h > 0)
+                        @as(f64, @floatFromInt(drag_delta)) / @as(f64, @floatFromInt(scrollbar_track_h))
+                    else
+                        0.0;
 
-            const new_scroll = @as(i32, @intFromFloat(scroll_ratio * @as(f64, @floatFromInt(max_scroll))));
-            const clamped_scroll = @max(0, @min(new_scroll, max_scroll));
+                    const new_scroll = @as(i32, @intFromFloat(scroll_ratio * @as(f64, @floatFromInt(max_scroll))));
+                    const clamped_scroll = @max(0, @min(new_scroll, max_scroll));
 
-            scrollable_widget.scroll_offset = scrollable_widget.scrollbar_drag_start_offset + @as(usize, @intCast(clamped_scroll));
-            std.debug.print("Dragging scroll: delta={d}, new_offset={d}\n", .{ drag_delta, scrollable_widget.scroll_offset orelse 0 });
-            wr.redraw(app);
-        }
-    }
-
-    if (app.mouse_dragging) {
-        if (app.mouse_drag_start_widget) |drag_widget| {
-            if (drag_widget.widget_type == .Input) {
-                calculateCursorPositionFromMouse(drag_widget, app.pointer_x, app.pointer_y);
-
-                if (drag_widget.selection_anchor == null) {
-                    drag_widget.selection_anchor = drag_widget.cursor_position;
+                    scrollable_widget.scroll_offset = scrollable_widget.scrollbar_drag_start_offset + @as(usize, @intCast(clamped_scroll));
+                    std.debug.print("Dragging scroll: delta={d}, new_offset={d}\n", .{ drag_delta, scrollable_widget.scroll_offset orelse 0 });
+                    wr.redraw(app);
                 }
-
-                const anchor = drag_widget.selection_anchor.?;
-                drag_widget.selection_start = @min(anchor, drag_widget.cursor_position);
-                drag_widget.selection_end = @max(anchor, drag_widget.cursor_position);
-
-                wr.redraw(app);
             }
         }
-    }
 
-    // handle hover
-    // const previous_hovered_widget = app.hovered_widget;
-    // if (previous_hovered_widget) |prev| {}
+        if (app.mouse_dragging) {
+            if (app.mouse_drag_start_widget) |drag_widget| {
+                if (drag_widget.widget_type == .Input) {
+                    calculateCursorPositionFromMouse(drag_widget, app.pointer_x, app.pointer_y);
 
-    const previous_hovered_widget = app.hovered_widget;
-    app.hovered_widget = w.findWidgetAt(&app.window, app.pointer_x, app.pointer_y);
+                    if (drag_widget.selection_anchor == null) {
+                        drag_widget.selection_anchor = drag_widget.cursor_position;
+                    }
 
-    if (previous_hovered_widget) |prev| {
-        if (app.hovered_widget) |hovered_widget| {
-            if (prev != hovered_widget and hovered_widget.background_hover_color != null) {
-                prev.backround_is_hovered = false;
-                wr.redraw(app);
+                    const anchor = drag_widget.selection_anchor.?;
+                    drag_widget.selection_start = @min(anchor, drag_widget.cursor_position);
+                    drag_widget.selection_end = @max(anchor, drag_widget.cursor_position);
+
+                    wr.redraw(app);
+                }
             }
         }
-    }
 
-    if (app.hovered_widget) |hovered_widget| {
-        hovered_widget.backround_is_hovered = true;
+        // handle hover
+        const previous_hovered_widget = focused_window.hovered_widget;
+        focused_window.hovered_widget = w.findWidgetAt(focused_window.widget, app.pointer_x, app.pointer_y);
 
-        if (hovered_widget.background_hover_color) |hover_color| {
-            _ = hover_color;
-            wr.redraw(app);
+        if (previous_hovered_widget) |prev| {
+            if (focused_window.hovered_widget) |hovered_widget| {
+                if (prev != hovered_widget and hovered_widget.background_hover_color != null) {
+                    prev.backround_is_hovered = false;
+                    // wr.redraw(app);
+                }
+            }
         }
 
-        set_cursor_for_widget(app, hovered_widget, app.last_serial);
+        if (focused_window.hovered_widget) |hovered_widget| {
+            std.debug.print("Hovered widget: {s}\n", .{hovered_widget.id});
+            hovered_widget.backround_is_hovered = true;
+
+            if (hovered_widget.background_hover_color) |hover_color| {
+                _ = hover_color;
+                // wr.redraw(app);
+            }
+
+            set_cursor_for_widget(focused_window, hovered_widget, app.last_serial);
+        }
     }
 }
 
@@ -229,163 +220,171 @@ fn pointer_button(
 ) callconv(.c) void {
     _ = pointer;
     _ = time;
+    const app: *Application = @ptrCast(@alignCast(data.?));
+    const window_focused = app.focused_window;
 
-    const app: *ginwaGTK = @ptrCast(@alignCast(data.?));
-    const now = utils.getNanoTime();
+    if (window_focused) |focused_window| {
+        std.debug.print("Pointer button window: {s}\n", .{focused_window.win_title});
 
-    app.last_serial = serial;
+        const now = utils.getNanoTime();
 
-    if (state == c.WL_POINTER_BUTTON_STATE_PRESSED) {
-        if (button == 0x110) { // left click
-            const previous_focus = app.focused_widget;
+        app.last_serial = serial;
 
-            if (w.findWidgetAt(&app.window, app.pointer_x, app.pointer_y)) |clicked_widget| {
-                std.debug.print("Clicked on widget: {s}\n", .{clicked_widget.id});
+        if (state == c.WL_POINTER_BUTTON_STATE_PRESSED) {
+            if (button == 0x110) { // left click
+                const previous_focus = focused_window.focused_widget;
 
-                // Handle scrollbar drag
-                var scrollable_widget = findScrollableAncestor(clicked_widget) orelse clicked_widget;
+                if (w.findWidgetAt(focused_window.widget, app.pointer_x, app.pointer_y)) |clicked_widget| {
+                    std.debug.print("Clicked on widget: {s}\n", .{clicked_widget.id});
 
-                if (scrollable_widget.isPointOnVerticalScrollbar(app.pointer_x, app.pointer_y)) {
-                    if (scrollable_widget.isPointOnVerticalScrollbarThumb(app.pointer_x, app.pointer_y)) {
-                        // Start dragging the scrollbar thumb
-                        scrollable_widget.is_dragging_scrollbar = true;
-                        scrollable_widget.scrollbar_drag_start = @as(i32, @intFromFloat(app.pointer_y));
-                        scrollable_widget.scrollbar_drag_start_offset = scrollable_widget.scroll_offset orelse 0;
-                        std.debug.print("Started scrolling drag\n", .{});
-                    } else {
-                        // Click on scrollbar track - jump to position
-                        const content_h = scrollable_widget.getScrollableContentHeight();
-                        const viewport_h = scrollable_widget.height - scrollable_widget.getPaddingVertical();
-                        const scrollbar_h = viewport_h;
+                    // Handle scrollbar drag
+                    var scrollable_widget = findScrollableAncestor(clicked_widget) orelse clicked_widget;
 
-                        const scrollbar_y = scrollable_widget.y + scrollable_widget.getPaddingTop();
-                        const click_ratio = @as(f64, @floatFromInt(@as(i32, @intFromFloat(app.pointer_y)) - scrollbar_y)) / @as(f64, @floatFromInt(scrollbar_h));
-                        const max_scroll = @max(0, content_h - viewport_h);
-                        const new_scroll = @as(i32, @intFromFloat(click_ratio * @as(f64, @floatFromInt(max_scroll))));
+                    if (scrollable_widget.isPointOnVerticalScrollbar(app.pointer_x, app.pointer_y)) {
+                        if (scrollable_widget.isPointOnVerticalScrollbarThumb(app.pointer_x, app.pointer_y)) {
+                            // Start dragging the scrollbar thumb
+                            scrollable_widget.is_dragging_scrollbar = true;
+                            scrollable_widget.scrollbar_drag_start = @as(i32, @intFromFloat(app.pointer_y));
+                            scrollable_widget.scrollbar_drag_start_offset = scrollable_widget.scroll_offset orelse 0;
+                            std.debug.print("Started scrolling drag\n", .{});
+                        } else {
+                            // Click on scrollbar track - jump to position
+                            const content_h = scrollable_widget.getScrollableContentHeight();
+                            const viewport_h = scrollable_widget.height - scrollable_widget.getPaddingVertical();
+                            const scrollbar_h = viewport_h;
 
-                        scrollable_widget.scroll_offset = @as(usize, @intCast(@max(0, new_scroll)));
-                        std.debug.print("Jumped scroll to {d}\n", .{scrollable_widget.scroll_offset orelse 0});
-                        wr.redraw(app);
+                            const scrollbar_y = scrollable_widget.y + scrollable_widget.getPaddingTop();
+                            const click_ratio = @as(f64, @floatFromInt(@as(i32, @intFromFloat(app.pointer_y)) - scrollbar_y)) / @as(f64, @floatFromInt(scrollbar_h));
+                            const max_scroll = @max(0, content_h - viewport_h);
+                            const new_scroll = @as(i32, @intFromFloat(click_ratio * @as(f64, @floatFromInt(max_scroll))));
+
+                            scrollable_widget.scroll_offset = @as(usize, @intCast(@max(0, new_scroll)));
+                            std.debug.print("Jumped scroll to {d}\n", .{scrollable_widget.scroll_offset orelse 0});
+                            wr.redraw2(focused_window);
+                        }
+                        return; // Don't process as regular click
                     }
-                    return; // Don't process as regular click
-                }
 
-                // Check if clicked on eye icon of a password input
-                if (clicked_widget.widget_type == .Input and
-                    clicked_widget.input_text_type == .Password)
-                {
-
-                    // Calculate eye icon bounds
-                    const icon_size: i32 = 16;
-                    const icon_padding: i32 = 10;
-                    const icon_x = clicked_widget.x + clicked_widget.width - icon_size - icon_padding;
-                    const icon_y = clicked_widget.y + @divTrunc(clicked_widget.height - icon_size, 2);
-                    const icon_x2 = icon_x + icon_size;
-                    const icon_y2 = icon_y + icon_size;
-
-                    // Check if click is within eye icon bounds
-                    if (app.pointer_x >= @as(f64, @floatFromInt(icon_x)) and
-                        app.pointer_x <= @as(f64, @floatFromInt(icon_x2)) and
-                        app.pointer_y >= @as(f64, @floatFromInt(icon_y)) and
-                        app.pointer_y <= @as(f64, @floatFromInt(icon_y2)))
+                    // Check if clicked on eye icon of a password input
+                    if (clicked_widget.widget_type == .Input and
+                        clicked_widget.input_text_type == .Password)
                     {
 
-                        // Toggle password visibility
-                        clicked_widget.password_visible = !clicked_widget.password_visible;
-                        std.debug.print("Password visibility toggled: {}\n", .{clicked_widget.password_visible});
-                        wr.redraw(app);
-                        return; // Don't trigger input focus when clicking eye icon
+                        // Calculate eye icon bounds
+                        const icon_size: i32 = 16;
+                        const icon_padding: i32 = 10;
+                        const icon_x = clicked_widget.x + clicked_widget.width - icon_size - icon_padding;
+                        const icon_y = clicked_widget.y + @divTrunc(clicked_widget.height - icon_size, 2);
+                        const icon_x2 = icon_x + icon_size;
+                        const icon_y2 = icon_y + icon_size;
+
+                        // Check if click is within eye icon bounds
+                        if (app.pointer_x >= @as(f64, @floatFromInt(icon_x)) and
+                            app.pointer_x <= @as(f64, @floatFromInt(icon_x2)) and
+                            app.pointer_y >= @as(f64, @floatFromInt(icon_y)) and
+                            app.pointer_y <= @as(f64, @floatFromInt(icon_y2)))
+                        {
+
+                            // Toggle password visibility
+                            clicked_widget.password_visible = !clicked_widget.password_visible;
+                            std.debug.print("Password visibility toggled: {}\n", .{clicked_widget.password_visible});
+                            wr.redraw2(focused_window);
+                            return; // Don't trigger input focus when clicking eye icon
+                        }
                     }
-                }
 
-                if (clicked_widget.widget_type == .Input) {
-                    app.focused_widget = clicked_widget;
-                    app.cursor_visible = true;
-                    app.last_cursor_blink = utils.getNanoTime();
+                    if (clicked_widget.widget_type == .Input) {
+                        std.debug.print("Input focused: {s}, cursor at: {}\n", .{ clicked_widget.id, clicked_widget.cursor_position });
+                        focused_window.focused_widget = clicked_widget;
+                        app.cursor_visible = true;
+                        app.last_cursor_blink = utils.getNanoTime();
 
-                    const click_interval = now - app.mouse_last_click_time;
-                    const is_quick_click = click_interval < app.mouse_quick_clink_interval;
-                    const is_same_widget = app.mouse_last_click_widget == clicked_widget;
+                        const click_interval = now - app.mouse_last_click_time;
+                        const is_quick_click = click_interval < app.mouse_quick_clink_interval;
+                        const is_same_widget = app.mouse_last_click_widget == clicked_widget;
 
-                    if (is_quick_click and is_same_widget) {
-                        app.mouse_click_count += 1;
-                    } else {
-                        app.mouse_click_count = 1;
-                    }
+                        if (is_quick_click and is_same_widget) {
+                            app.mouse_click_count += 1;
+                        } else {
+                            app.mouse_click_count = 1;
+                        }
 
-                    app.mouse_last_click_time = now;
-                    app.mouse_last_click_widget = clicked_widget;
+                        app.mouse_last_click_time = now;
+                        app.mouse_last_click_widget = clicked_widget;
 
-                    // Calculate cursor position from mouse click
-                    calculateCursorPositionFromMouse(clicked_widget, app.pointer_x, app.pointer_y);
+                        // Calculate cursor position from mouse click
+                        calculateCursorPositionFromMouse(clicked_widget, app.pointer_x, app.pointer_y);
 
-                    // Clear selection when clicking
-                    clicked_widget.selection_start = null;
-                    clicked_widget.selection_end = null;
-
-                    // handle click type
-                    if (app.mouse_click_count == 1) {
+                        // Clear selection when clicking
                         clicked_widget.selection_start = null;
                         clicked_widget.selection_end = null;
-                        clicked_widget.selection_anchor = clicked_widget.cursor_position;
-                    } else if (app.mouse_click_count >= 2) {
-                        selectWordAtCursor(clicked_widget);
+
+                        // handle click type
+                        if (app.mouse_click_count == 1) {
+                            clicked_widget.selection_start = null;
+                            clicked_widget.selection_end = null;
+                            clicked_widget.selection_anchor = clicked_widget.cursor_position;
+                        } else if (app.mouse_click_count >= 2) {
+                            selectWordAtCursor(clicked_widget);
+                        }
+
+                        app.mouse_dragging = true;
+                        app.mouse_drag_start_widget = clicked_widget;
+                        app.mouse_drag_start_x = app.pointer_x;
+                        app.mouse_drag_start_y = app.pointer_y;
+
+                        // wr.redraw(app);
+
+                        std.debug.print("Input focused: {s}, cursor at: {}\n", .{ clicked_widget.id, clicked_widget.cursor_position });
+                    } else if (clicked_widget.widget_type == .Button) {
+                        clicked_widget.on_click_backgroud_is_hovered = true;
+                        app.mouse_dragging = false;
+                        app.mouse_drag_start_widget = null;
+                        app.mouse_click_count = 0;
+
+                        // redraw ui to show the change
+                        wr.redraw(app);
+                    } else {
+                        focused_window.focused_widget = null;
+                        app.mouse_dragging = false;
+                        app.mouse_drag_start_widget = null;
+                        app.mouse_click_count = 0;
                     }
 
-                    app.mouse_dragging = true;
-                    app.mouse_drag_start_widget = clicked_widget;
-                    app.mouse_drag_start_x = app.pointer_x;
-                    app.mouse_drag_start_y = app.pointer_y;
-
-                    // wr.redraw(app);
-
-                    std.debug.print("Input focused: {s}, cursor at: {}\n", .{ clicked_widget.id, clicked_widget.cursor_position });
-                } else if (clicked_widget.widget_type == .Button) {
-                    clicked_widget.on_click_backgroud_is_hovered = true;
-                    app.mouse_dragging = false;
-                    app.mouse_drag_start_widget = null;
-                    app.mouse_click_count = 0;
-
-                    // redraw ui to show the change
-                    wr.redraw(app);
+                    clicked_widget.trigger_click(app);
                 } else {
-                    app.focused_widget = null;
-                    app.mouse_dragging = false;
-                    app.mouse_drag_start_widget = null;
-                    app.mouse_click_count = 0;
+                    focused_window.focused_widget = null;
                 }
 
-                clicked_widget.trigger_click(app);
-            } else {
-                app.focused_widget = null;
-            }
-
-            // If focus changed, redraw to show/hide cursor
-            if (previous_focus != app.focused_widget) {
-                // wr.redraw(app);
-            }
-        }
-    } else if (state == c.WL_POINTER_BUTTON_STATE_RELEASED) {
-        if (button == 0x110) { // left click
-            // Stop scrollbar dragging if active
-            if (w.findWidgetAt(&app.window, app.pointer_x, app.pointer_y)) |clicked_widget| {
-                var scrollable_widget = findScrollableAncestor(clicked_widget) orelse clicked_widget;
-                if (scrollable_widget.is_dragging_scrollbar) {
-                    scrollable_widget.is_dragging_scrollbar = false;
-                    std.debug.print("Stopped scrolling drag\n", .{});
+                // If focus changed, redraw to show/hide cursor
+                if (previous_focus != focused_window.focused_widget) {
+                    // wr.redraw(app);
                 }
             }
+        } else if (state == c.WL_POINTER_BUTTON_STATE_RELEASED) {
+            if (button == 0x110) { // left click
+                // Stop scrollbar dragging if active
+                if (w.findWidgetAt(focused_window.widget, app.pointer_x, app.pointer_y)) |clicked_widget| {
+                    var scrollable_widget = findScrollableAncestor(clicked_widget) orelse clicked_widget;
+                    if (scrollable_widget.is_dragging_scrollbar) {
+                        scrollable_widget.is_dragging_scrollbar = false;
+                        std.debug.print("Stopped scrolling drag\n", .{});
+                    }
+                }
 
-            app.mouse_dragging = false;
-            app.mouse_drag_start_widget = null;
+                app.mouse_dragging = false;
+                app.mouse_drag_start_widget = null;
 
-            if (w.findWidgetAt(&app.window, app.pointer_x, app.pointer_y)) |clicked_widget| {
-                clicked_widget.on_click_backgroud_is_hovered = false;
+                if (w.findWidgetAt(focused_window.widget, app.pointer_x, app.pointer_y)) |clicked_widget| {
+                    clicked_widget.on_click_backgroud_is_hovered = false;
+                }
             }
         }
+
+        wr.redraw2(focused_window);
     }
 
-    wr.redraw(app);
+    // const app: *ginwaGTK = @ptrCast(@alignCast(data.?));
 }
 
 fn selectWordAtCursor(widget: *Widget) void {
@@ -459,29 +458,33 @@ fn pointer_axis(
 ) callconv(.c) void {
     _ = pointer;
     _ = time;
+    _ = axis;
+    _ = value;
+    _ = data;
 
-    const app: *ginwaGTK = @ptrCast(@alignCast(data.?));
-
-    // Find the widget under cursor
-    if (w.findWidgetAt(&app.window, app.pointer_x, app.pointer_y)) |target_widget| {
-        // Find parent scrollable container
-        const scrollable_widget = findScrollableAncestor(target_widget) orelse target_widget;
-
-        // Handle vertical scrolling
-        if (axis == c.WL_POINTER_AXIS_VERTICAL_SCROLL) {
-            const scroll_amount = @divFloor(value, 10); // Smaller divisor = faster scroll
-            const current_scroll = scrollable_widget.scroll_offset orelse 0;
-            const new_scroll = @max(0, @as(i32, @intCast(current_scroll)) + scroll_amount);
-
-            const max_scroll = @max(0, scrollable_widget.getScrollableContentHeight() - (scrollable_widget.height - scrollable_widget.getPaddingVertical()));
-            scrollable_widget.scroll_offset = @min(@as(usize, @intCast(new_scroll)), @as(usize, @intCast(max_scroll)));
-
-            wr.redraw(app);
-        }
-    }
+    // const app: *ginwaGTK = @ptrCast(@alignCast(data.?));
+    //
+    // // Find the widget under cursor
+    // if (w.findWidgetAt(&app.window, app.pointer_x, app.pointer_y)) |target_widget| {
+    //     // Find parent scrollable container
+    //     const scrollable_widget = findScrollableAncestor(target_widget) orelse target_widget;
+    //
+    //     // Handle vertical scrolling
+    //     if (axis == c.WL_POINTER_AXIS_VERTICAL_SCROLL) {
+    //         const scroll_amount = @divFloor(value, 10); // Smaller divisor = faster scroll
+    //         const current_scroll = scrollable_widget.scroll_offset orelse 0;
+    //         const new_scroll = @max(0, @as(i32, @intCast(current_scroll)) + scroll_amount);
+    //
+    //         const max_scroll = @max(0, scrollable_widget.getScrollableContentHeight() - (scrollable_widget.height - scrollable_widget.getPaddingVertical()));
+    //         scrollable_widget.scroll_offset = @min(@as(usize, @intCast(new_scroll)), @as(usize, @intCast(max_scroll)));
+    //
+    //         wr.redraw(app);
+    //     }
+    // }
 }
 
-fn set_cursor_for_widget(app: *ginwaGTK, widget: *Widget, serial: u32) void {
+fn set_cursor_for_widget(window: *Window, widget: *Widget, serial: u32) void {
+    const app = window.app;
     var cursor_name: [*c]const u8 = "left_ptr";
 
     if (widget.widget_type == .Button) {
@@ -501,9 +504,9 @@ fn set_cursor_for_widget(app: *ginwaGTK, widget: *Widget, serial: u32) void {
     }
 
     if (app.wl_pointer) |pointer| {
-        if (app.cursor_theme) |cursor_theme| {
-            if (app.current_sursor == cursor_name) return;
-            app.current_sursor = cursor_name;
+        if (window.cursor_theme) |cursor_theme| {
+            if (window.current_sursor == cursor_name) return;
+            window.current_sursor = cursor_name;
 
             const cursor = c.wl_cursor_theme_get_cursor(cursor_theme, cursor_name);
             const image = cursor.*.images[0];
@@ -516,12 +519,13 @@ fn set_cursor_for_widget(app: *ginwaGTK, widget: *Widget, serial: u32) void {
 
             const image_width: i32 = @intCast(image.*.width);
             const image_height: i32 = @intCast(image.*.height);
-            c.wl_surface_damage(app.cursor_surface, 0, 0, image_width, image_height);
+            c.wl_surface_damage(window.cursor_surface, 0, 0, image_width, image_height);
 
-            c.wl_surface_attach(app.cursor_surface, buffer, 0, 0);
-            c.wl_surface_commit(app.cursor_surface);
+            c.wl_surface_attach(window.cursor_surface, buffer, 0, 0);
+            c.wl_surface_commit(window.cursor_surface);
 
-            c.wl_pointer_set_cursor(pointer, serial, app.cursor_surface, hotspot_x, hotspot_y);
+            c.wl_pointer_set_cursor(pointer, serial, window.cursor_surface, hotspot_x, hotspot_y);
+            std.debug.print("Set cursor for widget: {s}\n", .{widget.id});
         }
     }
 }

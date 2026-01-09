@@ -4,7 +4,7 @@ const random = @import("../random.zig");
 const Widget = w.Widget;
 
 pub const PropsButton = struct {
-    name: []const u8 = "",
+    id: []const u8 = "",
     width: i32 = 120,
     height: i32 = 30,
     label: []const u8 = "",
@@ -15,6 +15,8 @@ pub const PropsButton = struct {
     padding: i32 = 8,
     background_hover_color: ?u32 = null,
     on_click_hover_color: ?u32 = null,
+    app: *w.Application = undefined,
+    window: *w.Window = undefined,
 };
 
 pub fn build(props: PropsButton) *Widget {
@@ -22,7 +24,7 @@ pub fn build(props: PropsButton) *Widget {
     const widget = allocator.create(Widget) catch unreachable;
     widget.* = .{
         .guid = random.randomId(allocator) catch unreachable,
-        .id = props.name,
+        .id = props.id,
         .width = props.width,
         .height = props.height,
         .desired_width = if (props.width >= 0) props.width else null,
@@ -35,6 +37,8 @@ pub fn build(props: PropsButton) *Widget {
         .border_radius = props.border_radius,
         .background_hover_color = props.background_hover_color,
         .on_click_hover_color = props.on_click_hover_color,
+        .app = props.app,
+        .window = props.window,
     };
 
     widget.padding = props.padding;

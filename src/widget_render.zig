@@ -4,8 +4,10 @@ const w = @import("widget.zig");
 const wk = @import("widget_keyboard.zig");
 const c = w.c;
 const Widget = w.Widget;
-const ginwaGTK = w.ginwaGTK;
+const Window = w.Window;
+const ginwaGTK = w.Application;
 const LayoutAlignment = w.LayoutAlignment;
+const debugger = @import("debugger.zig");
 
 fn renderEyeIcon(
     widget: *Widget,
@@ -298,6 +300,174 @@ pub fn renderText(
     }
 }
 
+pub fn renderText2(
+    widget: *Widget,
+    pixels: [*]u32,
+    pitch_bytes: usize,
+    buf_w: usize,
+    buf_h: usize,
+    app: *Window,
+) void {
+    // Skip rendering if no text and not an Input widget
+    if (widget.text.len == 0 and widget.widget_type != .Input) return;
+
+    const stride = @as(i32, @intCast(pitch_bytes));
+    const surface = c.cairo_image_surface_create_for_data(
+        @ptrCast(pixels),
+        c.CAIRO_FORMAT_ARGB32,
+        @as(i32, @intCast(buf_w)),
+        @as(i32, @intCast(buf_h)),
+        stride,
+    );
+    defer c.cairo_surface_destroy(surface);
+
+    const cr = c.cairo_create(surface);
+    defer c.cairo_destroy(cr);
+
+    c.cairo_rectangle(cr, @as(f64, @floatFromInt(widget.x)), @as(f64, @floatFromInt(widget.y)), @as(f64, @floatFromInt(widget.width)), @as(f64, @floatFromInt(widget.height)));
+    c.cairo_clip(cr);
+
+    const layout = c.pango_cairo_create_layout(cr);
+    defer c.g_object_unref(layout);
+
+    // Use input_text for Input widgets, otherwise use text
+    var display_text = if (widget.widget_type == .Input)
+        if (widget.input_text.len > 0)
+            widget.input_text
+        else if (widget.placeholder.len > 0)
+            widget.placeholder
+        else
+            widget.text
+    else
+        widget.text;
+
+    const text_to_render = if (widget.widget_type == .Input and widget.input_text.len > 0 and widget.input_text_type == .Password and widget.password_visible == false)
+        // Create asterisks string for password display
+        blk: {
+            const password_len = widget.input_text.len;
+            var password_buf: [256]u8 = undefined;
+            @memset(password_buf[0..password_len], '*');
+            break :blk password_buf[0..password_len];
+        } else display_text;
+
+    display_text = text_to_render;
+    c.pango_layout_set_text(layout, display_text.ptr, @as(i32, @intCast(display_text.len)));
+
+    // Create font description with size
+    var font_buf: [128]u8 = undefined;
+    const font_str_z = if (widget.font_size > 0)
+        std.fmt.bufPrintZ(&font_buf, "{s} {d}", .{
+            widget.font_type,
+            widget.font_size,
+        }) catch "Sans 16"
+    else
+        std.fmt.bufPrintZ(&font_buf, "{s}", .{widget.font_type}) catch "Sans";
+
+    const font_desc = c.pango_font_description_from_string(font_str_z);
+    defer c.pango_font_description_free(font_desc);
+
+    c.pango_font_description_set_weight(font_desc, widget.font_weight.toPangoWeight());
+    c.pango_layout_set_font_description(layout, font_desc);
+
+    if (widget.widget_type == .Input) {
+        c.pango_layout_set_width(layout, -1);
+    } else {
+        c.pango_layout_set_width(layout, (widget.width - widget.getPaddingHorizontal()) * c.PANGO_SCALE);
+        c.pango_layout_set_wrap(layout, c.PANGO_WRAP_WORD_CHAR);
+    }
+
+    c.pango_layout_set_alignment(layout, widget.font_alignment.toPangoAlign());
+
+    var ink_rect: c.PangoRectangle = undefined;
+    var logical_rect: c.PangoRectangle = undefined;
+    c.pango_layout_get_pixel_extents(layout, &ink_rect, &logical_rect);
+
+    const scroll_amount: usize = widget.scroll_offset orelse 0;
+
+    const text_x: f64 = @as(f64, @floatFromInt(widget.x + widget.getPaddingLeft())) -
+        @as(f64, @floatFromInt(scroll_amount));
+
+    var text_y: f64 = @floatFromInt(widget.y + widget.getPaddingTop());
+
+    const content_height = widget.height - widget.getPaddingVertical();
+    const text_height = logical_rect.height;
+
+    switch (widget.font_alignment) {
+        .LeftTop, .RightTop => {},
+        .CenterLeft, .Center, .CenterRight => {
+            text_y += @as(f64, @floatFromInt(content_height - text_height)) / 2.0;
+        },
+        .LeftBottom, .RightBottom => {
+            text_y += @floatFromInt(content_height - text_height);
+        },
+        else => {},
+    }
+
+    // Use gray color for placeholder text, otherwise use font_color
+    const is_placeholder = widget.widget_type == .Input and widget.input_text.len == 0 and widget.placeholder.len > 0;
+    const text_color: u32 = if (is_placeholder) 0xFF888888 else widget.font_color;
+
+    const alpha = @as(f64, @floatFromInt((text_color >> 24) & 0xFF)) / 255.0;
+    const red = @as(f64, @floatFromInt((text_color >> 16) & 0xFF)) / 255.0;
+    const green = @as(f64, @floatFromInt((text_color >> 8) & 0xFF)) / 255.0;
+    const blue = @as(f64, @floatFromInt(text_color & 0xFF)) / 255.0;
+
+    c.cairo_set_source_rgba(cr, red, green, blue, alpha);
+    c.cairo_move_to(cr, text_x, text_y);
+    c.pango_cairo_show_layout(cr, layout);
+
+    // ===== BLINKING CURSOR - ONLY FOR INPUT WIDGETS =====
+    const is_focused = if (app.focused_widget) |focused| focused == widget else false;
+
+    // ===== RENDER SELECTION HIGHLIGHT =====
+    if (widget.widget_type == .Input and is_focused) {
+        if (widget.selection_start != null and widget.selection_end != null) {
+            const start = @min(widget.selection_start.?, widget.selection_end.?);
+            const end = @max(widget.selection_start.?, widget.selection_end.?);
+
+            if (start != end) {
+                // Get the position of selection start and end
+                var start_rect: c.PangoRectangle = undefined;
+                var end_rect: c.PangoRectangle = undefined;
+                c.pango_layout_get_cursor_pos(layout, @intCast(start), &start_rect, null);
+                c.pango_layout_get_cursor_pos(layout, @intCast(end), &end_rect, null);
+
+                const sel_x = text_x + @as(f64, @floatFromInt(start_rect.x)) / @as(f64, @floatFromInt(c.PANGO_SCALE));
+                const sel_width = (@as(f64, @floatFromInt(end_rect.x - start_rect.x))) / @as(f64, @floatFromInt(c.PANGO_SCALE));
+                const sel_y = text_y;
+                const sel_height = @as(f64, @floatFromInt(logical_rect.height));
+
+                // Draw selection background (light blue)
+                c.cairo_set_source_rgba(cr, 0.3, 0.6, 1.0, 0.3);
+                c.cairo_rectangle(cr, sel_x, sel_y, sel_width, sel_height);
+                c.cairo_fill(cr);
+            }
+        }
+    }
+
+    // Only draw cursor if:
+    // 1. This is an Input widget
+    // 2. This widget is focused
+    // 3. Cursor is in visible state (blinking)
+    if (widget.widget_type == .Input and is_focused and app.cursor_visible) {
+        // Get cursor position at the cursor_position index
+        const cursor_index: i32 = @intCast(widget.cursor_position);
+        var cursor_rect: c.PangoRectangle = undefined;
+        c.pango_layout_get_cursor_pos(layout, cursor_index, &cursor_rect, null);
+
+        const cursor_x = text_x + @as(f64, @floatFromInt(cursor_rect.x)) / @as(f64, @floatFromInt(c.PANGO_SCALE));
+        const cursor_y = text_y + @as(f64, @floatFromInt(cursor_rect.y)) / @as(f64, @floatFromInt(c.PANGO_SCALE));
+        const cursor_height = @as(f64, @floatFromInt(cursor_rect.height)) / @as(f64, @floatFromInt(c.PANGO_SCALE));
+
+        // Draw cursor line
+        c.cairo_set_line_width(cr, 2.0);
+        c.cairo_set_source_rgba(cr, red, green, blue, alpha);
+        c.cairo_move_to(cr, cursor_x, cursor_y);
+        c.cairo_line_to(cr, cursor_x, cursor_y + cursor_height);
+        c.cairo_stroke(cr);
+    }
+}
+
 pub fn renderWidget(
     widget: *Widget,
     pixels: [*]u32,
@@ -412,6 +582,130 @@ pub fn renderWidget(
             // Regular rendering without clipping
             for (children.items) |child| {
                 renderWidget(child, pixels, pitch, buf_w, buf_h, app);
+            }
+        }
+    }
+
+    // Render scrollbar for scrollable containers
+    if (widget.widget_type == .Layout and widget.hasVerticalOverflow()) {
+        renderVerticalScrollbar(widget, pixels, pitch, buf_w, buf_h);
+    }
+}
+
+pub fn renderWidget2(
+    widget: *Widget,
+    pixels: [*]u32,
+    pitch: usize,
+    buf_w: usize,
+    buf_h: usize,
+    app: *Window, // Add app parameter
+) void {
+    if (widget.width <= 0 or widget.height <= 0) return;
+
+    const widget_x = widget.x;
+    const widget_y = widget.y;
+    const widget_width = widget.width;
+    const widget_height = widget.height;
+
+    // Only render background if not transparent (alpha > 0)
+    const bg_alpha = (widget.background_color >> 24) & 0xFF;
+    if (bg_alpha > 0) {
+        var current_bg_color = widget.background_color;
+        if (widget.backround_is_hovered) {
+            current_bg_color = widget.background_hover_color orelse widget.background_color;
+        }
+
+        if (widget.on_click_backgroud_is_hovered) {
+            current_bg_color = widget.on_click_hover_color orelse widget.background_color;
+        }
+
+        if (widget.border_radius > 0) {
+            renderRoundedWidget(
+                pixels,
+                pitch,
+                buf_w,
+                buf_h,
+                widget_x,
+                widget_y,
+                widget_width,
+                widget_height,
+                current_bg_color,
+                widget.border_color,
+                widget.border_width orelse 0,
+                widget.border_radius,
+            );
+        } else {
+            fillRectClipped(
+                pixels,
+                pitch,
+                buf_w,
+                buf_h,
+                widget_x,
+                widget_y,
+                widget_width,
+                widget_height,
+                current_bg_color,
+            );
+
+            if (widget.border_color != null and widget.border_width != null) {
+                const border_w = widget.border_width.?;
+                if (border_w > 0) {
+                    renderBorder(
+                        pixels,
+                        pitch,
+                        buf_w,
+                        buf_h,
+                        widget_x,
+                        widget_y,
+                        widget_width,
+                        widget_height,
+                        widget.border_color.?,
+                        border_w,
+                    );
+                }
+            }
+        }
+    }
+
+    // Render text with app reference
+    const pitch_bytes = pitch * 4;
+    renderText2(widget, pixels, pitch_bytes, buf_w, buf_h, app);
+
+    // Render icon image
+    if (widget.widget_type == .Icon and widget.image != null) {
+        renderIconImage(widget, pixels, pitch, buf_w, buf_h);
+    }
+
+    renderEyeIcon(widget, pixels, pitch, buf_w, buf_h);
+
+    // Render children with simple viewport clipping for scrollable containers
+    if (widget.children) |children| {
+        // For scrollable containers, calculate viewport bounds to prevent overlap
+        if (widget.widget_type == .Layout and widget.isScrollable()) {
+            // Calculate viewport bounds (exclude scrollbar area)
+            const viewport_x = widget.x + widget.getPaddingLeft();
+            const viewport_y = widget.y + widget.getPaddingTop();
+            const scrollbar_offset = if (widget.hasVerticalOverflow()) widget.scrollbar_width + 2 else 0;
+            const viewport_w = widget.width - widget.getPaddingHorizontal() - scrollbar_offset;
+            const viewport_h = widget.height - widget.getPaddingVertical();
+
+            // Render children, but skip those completely outside the viewport
+            for (children.items) |child| {
+                // Check if child is at least partially visible in the viewport
+                const child_visible = child.x < (viewport_x + viewport_w) and
+                    (child.x + child.width) > viewport_x and
+                    child.y < (viewport_y + viewport_h) and
+                    (child.y + child.height) > viewport_y;
+
+                if (child_visible) {
+                    renderWidget2(child, pixels, pitch, buf_w, buf_h, app);
+                }
+                // If not visible, skip rendering (this is the clipping)
+            }
+        } else {
+            // Regular rendering without clipping
+            for (children.items) |child| {
+                renderWidget2(child, pixels, pitch, buf_w, buf_h, app);
             }
         }
     }
@@ -1051,9 +1345,9 @@ pub fn create_shm_buffer(self: *ginwaGTK) ?*c.wl_buffer {
 
     const stride: usize = win_width * 4;
     const size: usize = stride * win_height;
-    const buf_w: usize = win_width;
-    const buf_h: usize = win_height;
-    const stride_u32: usize = @intCast(win_width);
+    // const buf_w: usize = win_width;
+    // const buf_h: usize = win_height;
+    // const stride_u32: usize = @intCast(win_width);
 
     const fd = c.memfd_create("wl-buffer", 0);
     _ = c.ftruncate(fd, @intCast(size));
@@ -1088,12 +1382,77 @@ pub fn create_shm_buffer(self: *ginwaGTK) ?*c.wl_buffer {
     // debugger.printWidget(&self.window);
 
     // This will now properly maintain window size
-    layoutWidget(&self.window, self.win_width, self.win_height);
+    // layoutWidget(&self.window, self.win_width, self.win_height);
 
     // std.debug.print("after layouting self.window: {s}\n", .{""});
     // debugger.printWidget(&self.window);
 
-    renderWidget(&self.window, pixels, stride_u32, buf_w, buf_h, self);
+    // renderWidget(&self.window, pixels, stride_u32, buf_w, buf_h, self);
+
+    defer _ = c.wl_shm_pool_destroy(pool);
+    defer _ = c.close(fd);
+    defer _ = c.munmap(shm_data_void, size);
+
+    return buffer;
+}
+
+pub fn create_shm_buffer2(self: *Window) ?*c.wl_buffer {
+    // std.debug.print("create_shm_buffer\n", .{});
+    const win_width: usize = @intCast(self.win_width);
+    const win_height: usize = @intCast(self.win_height);
+
+    // std.debug.print("win_width: {d}, win_height: {d}\n", .{ win_width, win_height });
+
+    const stride: usize = win_width * 4;
+    const size: usize = stride * win_height;
+    const buf_w: usize = win_width;
+    const buf_h: usize = win_height;
+    const stride_u32: usize = @intCast(win_width);
+
+    const fd = c.memfd_create("wl-buffer", 0);
+    _ = c.ftruncate(fd, @intCast(size));
+
+    const shm_data_void = c.mmap(null, size, c.PROT_READ | c.PROT_WRITE, c.MAP_SHARED, fd, 0);
+    self.shm_data = @ptrCast(shm_data_void);
+
+    if (self.app.shm == null) {
+        std.log.err("No shm", .{});
+    }
+
+    if (fd < 0) {
+        std.log.err("Failed to create shm", .{});
+    }
+
+    const pool = c.wl_shm_create_pool(self.app.shm, fd, @intCast(size));
+    const buffer = c.wl_shm_pool_create_buffer(
+        pool,
+        0,
+        @intCast(self.win_width),
+        @intCast(self.win_height),
+        @intCast(stride),
+        c.WL_SHM_FORMAT_XRGB8888,
+    );
+
+    const pixels: [*]u32 = @ptrCast(@alignCast(self.shm_data));
+    for (0..@intCast(self.win_width * self.win_height)) |i| {
+        pixels[i] = 0xFF000000;
+    }
+
+    std.debug.print("before layouting self.window: {s}\n", .{""});
+    // debugger.printWidget(self.widget);
+
+    // This will now properly maintain window size
+    layoutWidget(self.widget, self.win_width, self.win_height);
+
+    std.debug.print("after layouting self.window: {s}\n", .{""});
+    // debugger.printWidget(self.widget);
+
+    renderWidget2(self.widget, pixels, stride_u32, buf_w, buf_h, self);
+
+  // const total_pixels: usize = @intCast(self.win_width * self.win_height);
+    // std.debug.print("pixels: {any}\n", .{pixels});
+    // std.debug.print("First pixel: 0x{X}\n", .{pixels[0]});
+    // std.debug.print("Last pixel: 0x{X}\n", .{pixels[total_pixels - 1]});
 
     defer _ = c.wl_shm_pool_destroy(pool);
     defer _ = c.close(fd);
@@ -1106,109 +1465,118 @@ pub fn create_shm_buffer(self: *ginwaGTK) ?*c.wl_buffer {
 pub fn redraw(app: *ginwaGTK) void {
     const buffer = create_shm_buffer(app);
     defer c.wl_buffer_destroy(buffer);
-    c.wl_surface_attach(app.surface, buffer, 0, 0);
-    c.wl_surface_damage(app.surface, 0, 0, app.win_width, app.win_height);
-    c.wl_surface_commit(app.surface);
+    // c.wl_surface_attach(app.surface, buffer, 0, 0);
+    // c.wl_surface_damage(app.surface, 0, 0, app.win_width, app.win_height);
+    // c.wl_surface_commit(app.surface);
 }
 
-pub fn renderEventLoop(app: *ginwaGTK) void {
-    redraw(app);
-    c.wl_surface_commit(app.surface);
-
-    app.running = true;
-    app.last_cursor_blink = utils.getNanoTime();
-
-    // Event loop
-    while (app.running) {
-        // std.debug.print("Event loop time {d}\n", .{utils.getNanoTime()});
-        // First, dispatch any pending events
-        while (c.wl_display_prepare_read(app.display) != 0) {
-            _ = c.wl_display_dispatch_pending(app.display);
-        }
-
-        _ = c.wl_display_flush(app.display);
-
-        const current_time = utils.getNanoTime();
-        const time_since_blink = current_time - app.last_cursor_blink;
-
-        // Check if cursor needs to blink
-        var should_blink = false;
-        if (app.focused_widget) |widget| {
-            if (widget.widget_type == .Input) {
-                if (time_since_blink >= app.cursor_blink_interval) {
-                    should_blink = true;
-                }
-            }
-        }
-
-        // input blinking
-        if (should_blink and app.key_repeat_active == false) {
-            // std.debug.print("Blinking cursor\n", .{});
-            // Cancel the read since we're going to redraw
-            c.wl_display_cancel_read(app.display);
-
-            app.cursor_visible = !app.cursor_visible;
-            app.last_cursor_blink = current_time;
-
-            // Redraw for cursor blink
-            redraw(app);
-
-            if (app.focused_widget) |widget| {
-                c.wl_surface_damage(app.surface, widget.x, widget.y, widget.width, widget.height);
-            }
-            c.wl_surface_commit(app.surface);
-        } else {
-            if (app.key_repeat_active and app.keyboard_rate > 0) {
-                const now = utils.getNanoTime();
-                if (now >= app.next_key_repeat_time) {
-                    if (app.pressed_key) |k| {
-                        if (app.focused_widget) |fw| {
-                            if (fw.widget_type == .Input) {
-                                wk.handleInputKey(app, fw, k, app.shift_pressed, app.ctrl_pressed, app.allocator());
-
-                                redraw(app);
-
-                                // Schedule next repeat
-                                const interval_ms = @divFloor(1000, app.keyboard_rate);
-                                app.next_key_repeat_time = now + (interval_ms * 1_000_000);
-                            }
-                        }
-                    }
-                }
-            }
-
-            const fd = c.wl_display_get_fd(app.display);
-            var poll_fd = std.os.linux.pollfd{
-                .fd = fd,
-                .events = std.os.linux.POLL.IN,
-                .revents = 0,
-            };
-
-            // Calculate timeout until next blink
-            var timeout_ms: i32 = 2; // Default 16ms
-            if (app.focused_widget) |widget| {
-                if (widget.widget_type == .Input) {
-                    const remaining = app.cursor_blink_interval - time_since_blink;
-                    timeout_ms = @intCast(@divFloor(remaining, 1_000_000));
-                    if (timeout_ms < 1) timeout_ms = 1;
-                }
-            }
-
-            const poll_result = std.os.linux.poll(@ptrCast(&poll_fd), 1, timeout_ms);
-
-            if (poll_result > 0) {
-                // Events are ready, read them
-                _ = c.wl_display_read_events(app.display);
-                _ = c.wl_display_dispatch_pending(app.display);
-                app.trigger_event_callback();
-                std.debug.print("Event loop trigger callback time {d}\n", .{utils.getNanoTime()});
-            } else {
-                // Timeout or error, cancel the read
-                c.wl_display_cancel_read(app.display);
-            }
-        }
-    }
+pub fn redraw2(window: *Window) void {
+    const buffer = create_shm_buffer2(window);
+    defer c.wl_buffer_destroy(buffer);
+    c.wl_surface_attach(window.surface, buffer, 0, 0);
+    c.wl_surface_damage(window.surface, 0, 0, window.win_width, window.win_height);
+    c.wl_surface_commit(window.surface);
+    _ = c.wl_display_flush(window.app.display);
 }
+
+// pub fn renderEventLoop(app: *ginwaGTK) void {
+//     redraw(app);
+//     c.wl_surface_commit(app.surface);
+//
+//     app.running = true;
+//     app.last_cursor_blink = utils.getNanoTime();
+//
+//     // Event loop
+//     while (app.running) {
+//         // std.debug.print("Event loop time {d}\n", .{utils.getNanoTime()});
+//         // First, dispatch any pending events
+//         while (c.wl_display_prepare_read(app.display) != 0) {
+//             _ = c.wl_display_dispatch_pending(app.display);
+//         }
+//
+//         _ = c.wl_display_flush(app.display);
+//
+//         const current_time = utils.getNanoTime();
+//         const time_since_blink = current_time - app.last_cursor_blink;
+//
+//         // Check if cursor needs to blink
+//         var should_blink = false;
+//         if (app.focused_widget) |widget| {
+//             if (widget.widget_type == .Input) {
+//                 if (time_since_blink >= app.cursor_blink_interval) {
+//                     should_blink = true;
+//                 }
+//             }
+//         }
+//
+//         // input blinking
+//         if (should_blink and app.key_repeat_active == false) {
+//             // std.debug.print("Blinking cursor\n", .{});
+//             // Cancel the read since we're going to redraw
+//             c.wl_display_cancel_read(app.display);
+//
+//             app.cursor_visible = !app.cursor_visible;
+//             app.last_cursor_blink = current_time;
+//
+//             // Redraw for cursor blink
+//             redraw(app);
+//
+//             if (app.focused_widget) |widget| {
+//                 c.wl_surface_damage(app.surface, widget.x, widget.y, widget.width, widget.height);
+//             }
+//             c.wl_surface_commit(app.surface);
+//         } else {
+//             if (app.key_repeat_active and app.keyboard_rate > 0) {
+//                 const now = utils.getNanoTime();
+//                 if (now >= app.next_key_repeat_time) {
+//                     if (app.pressed_key) |k| {
+//                         if (app.focused_widget) |fw| {
+//                             if (fw.widget_type == .Input) {
+//                                 wk.handleInputKey(app, fw, k, app.shift_pressed, app.ctrl_pressed, app.allocator());
+//
+//                                 redraw(app);
+//
+//                                 // Schedule next repeat
+//                                 const interval_ms = @divFloor(1000, app.keyboard_rate);
+//                                 app.next_key_repeat_time = now + (interval_ms * 1_000_000);
+//                             }
+//                         }
+//                     }
+//                 }
+//             }
+//
+//             const fd = c.wl_display_get_fd(app.display);
+//             var poll_fd = std.os.linux.pollfd{
+//                 .fd = fd,
+//                 .events = std.os.linux.POLL.IN,
+//                 .revents = 0,
+//             };
+//
+//             // Calculate timeout until next blink
+//             var timeout_ms: i32 = 2; // Default 16ms
+//             if (app.focused_widget) |widget| {
+//                 if (widget.widget_type == .Input) {
+//                     const remaining = app.cursor_blink_interval - time_since_blink;
+//                     timeout_ms = @intCast(@divFloor(remaining, 1_000_000));
+//                     if (timeout_ms < 1) timeout_ms = 1;
+//                 }
+//             }
+//
+//             const poll_result = std.os.linux.poll(@ptrCast(&poll_fd), 1, timeout_ms);
+//
+//             if (poll_result > 0) {
+//                 // Events are ready, read them
+//                 _ = c.wl_display_read_events(app.display);
+//                 _ = c.wl_display_dispatch_pending(app.display);
+//                 app.trigger_event_callback();
+//                 std.debug.print("Event loop trigger callback time {d}\n", .{utils.getNanoTime()});
+//             } else {
+//                 // Timeout or error, cancel the read
+//                 c.wl_display_cancel_read(app.display);
+//             }
+//         }
+//     }
+// }
 
 pub fn ensureCursorVisible(self: *Widget, widget_width: i32) void {
     const text = if (self.input_text.len > 0)

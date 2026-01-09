@@ -4,7 +4,7 @@ const utils = @import("utils.zig");
 const w = @import("widget.zig");
 const wr = @import("widget_render.zig");
 const c = w.c;
-const ginwaGTK = w.ginwaGTK;
+const Application = w.Application;
 const Widget = w.Widget;
 
 const BACKSPACE_KEY = 14;
@@ -17,7 +17,7 @@ fn keyboard_repeat_info(
 ) callconv(.c) void {
     _ = keyboard;
 
-    const app: *ginwaGTK = @ptrCast(@alignCast(data.?));
+    const app: *Application = @ptrCast(@alignCast(data.?));
     app.keyboard_delay = delay;
     app.keyboard_rate = rate;
     std.debug.print("Keyboard repeat rate: {d}, delay: {d}\n", .{ rate, delay });
@@ -62,7 +62,7 @@ fn keyboard_leave(
     _ = serial;
     _ = surface;
 
-    const app: *ginwaGTK = @ptrCast(@alignCast(data.?));
+    const app: *Application = @ptrCast(@alignCast(data.?));
 
     app.key_repeat_active = false;
     std.debug.print("Keyboard focus lost\n", .{});
@@ -76,81 +76,82 @@ fn keyboard_key(
     key: u32,
     state: u32,
 ) callconv(.c) void {
-    _ = keyboard;
-    _ = serial;
     _ = time;
-    // const KEY_CTRL = 29;
+    _ = serial;
+    _ = keyboard;
+    std.debug.print("Keyboard key: {d}, state: {d}\n", .{ key, state });
+
     const KEY_C = 46;
     const KEY_V = 47;
 
-    const app: *ginwaGTK = @ptrCast(@alignCast(data.?));
+    const app: *Application = @ptrCast(@alignCast(data.?));
 
     std.debug.print("Keyboard key: {d}, state: {d}\n", .{ key, state });
 
-    if (state == c.WL_KEYBOARD_KEY_STATE_PRESSED) {
-        app.pressed_key = key;
-        app.key_repeat_active = true;
+    if (app.focused_window) |focused_window| {
+        if (state == c.WL_KEYBOARD_KEY_STATE_PRESSED) {
+            app.pressed_key = key;
+            app.key_repeat_active = true;
 
-        if (app.focused_widget) |widget| {
-            if (widget.widget_type == .Input) {
-                const now = utils.getNanoTime();
-                const delay_ms = app.keyboard_delay * 1_000_000;
-                app.next_key_repeat_time = now + delay_ms;
+            if (focused_window.focused_widget) |widget| {
+                if (widget.widget_type == .Input) {
+                    const now = utils.getNanoTime();
+                    const delay_ms = app.keyboard_delay * 1_000_000;
+                    app.next_key_repeat_time = now + delay_ms;
 
-                // Copy text to clipboard
-                if (app.ctrl_pressed and key == KEY_C and state == c.WL_KEYBOARD_KEY_STATE_PRESSED) {
-                    if (widget.input_text.len > 0 and widget.input_text_type != .Password) {
-                        const start_selection = @min(widget.selection_start.?, widget.selection_end.?);
-                        const end_selection = @max(widget.selection_start.?, widget.selection_end.?);
+                    // Copy text to clipboard
+                    if (app.ctrl_pressed and key == KEY_C and state == c.WL_KEYBOARD_KEY_STATE_PRESSED) {
+                        if (widget.input_text.len > 0 and widget.input_text_type != .Password) {
+                            const start_selection = @min(widget.selection_start.?, widget.selection_end.?);
+                            const end_selection = @max(widget.selection_start.?, widget.selection_end.?);
 
-                        const selection_text = widget.input_text[start_selection..end_selection];
+                            const selection_text = widget.input_text[start_selection..end_selection];
 
-                        if (app.clipboard_text) |text| {
-                            app.allocator().free(text);
-                        }
-
-                        const clipboard_len = end_selection - start_selection;
-                        const new_clipboard = app.allocator().alloc(u8, clipboard_len) catch return;
-                        @memcpy(new_clipboard, selection_text);
-                        app.clipboard_text = new_clipboard;
-
-                        std.debug.print("Copied text to clipboard: {s}\n", .{selection_text});
-                    }
-                }
-
-                // Paste text from clipboard
-                else if (app.ctrl_pressed and key == KEY_V and state == c.WL_KEYBOARD_KEY_STATE_PRESSED) {
-                    if (app.clipboard_text) |text| {
-                        const has_selection = widget.selection_start != null and widget.selection_end != null;
-                        if (has_selection) {
-                            deleteSelection(widget, app.allocator());
-                        }
-
-                        for (text) |char| {
-                            // Check maximum length constraint
-                            const max_len = widget.max_input_text_length;
-                            if (max_len > 0 and @as(i32, @intCast(widget.input_text.len)) >= max_len) {
-                                break;
+                            if (app.clipboard_text) |text| {
+                                app.allocator().free(text);
                             }
-                            insertCharAtCursor(widget, char, app.allocator());
+
+                            const clipboard_len = end_selection - start_selection;
+                            const new_clipboard = app.allocator().alloc(u8, clipboard_len) catch return;
+                            @memcpy(new_clipboard, selection_text);
+                            app.clipboard_text = new_clipboard;
+
+                            std.debug.print("Copied text to clipboard: {s}\n", .{selection_text});
                         }
-                        return;
                     }
-                } else {
-                    handleInputKey(app, widget, key, app.shift_pressed, app.ctrl_pressed, app.allocator());
+
+                    // Paste text from clipboard
+                    else if (app.ctrl_pressed and key == KEY_V and state == c.WL_KEYBOARD_KEY_STATE_PRESSED) {
+                        if (app.clipboard_text) |text| {
+                            const has_selection = widget.selection_start != null and widget.selection_end != null;
+                            if (has_selection) {
+                                deleteSelection(widget, app.allocator());
+                            }
+
+                            for (text) |char| {
+                                // Check maximum length constraint
+                                const max_len = widget.max_input_text_length;
+                                if (max_len > 0 and @as(i32, @intCast(widget.input_text.len)) >= max_len) {
+                                    break;
+                                }
+                                insertCharAtCursor(widget, char, app.allocator());
+                            }
+                        }
+                    } else {
+                        handleInputKey(app, widget, key, app.shift_pressed, app.ctrl_pressed, app.allocator());
+                    }
+
+                    widget.trigger_input_text_change();
+
+                    app.redraw_window(focused_window);
                 }
-
-                widget.trigger_input_text_change();
-
-                // Trigger redraw
-                wr.redraw(app);
             }
         }
-    }
 
-    if (state == c.WL_KEYBOARD_KEY_STATE_RELEASED) {
-        app.key_repeat_active = false;
-        app.pressed_key = null;
+        if (state == c.WL_KEYBOARD_KEY_STATE_RELEASED) {
+            app.key_repeat_active = false;
+            app.pressed_key = null;
+        }
     }
 }
 
@@ -228,7 +229,7 @@ fn keycodeToChar(keycode: u32, shift_pressed: bool) ?u8 {
     };
 }
 
-pub fn handleInputKey(app: *ginwaGTK, widget: *Widget, key: u32, shift_pressed: bool, ctrl_pressed: bool, alloc: std.mem.Allocator) void {
+pub fn handleInputKey(app: *Application, widget: *Widget, key: u32, shift_pressed: bool, ctrl_pressed: bool, alloc: std.mem.Allocator) void {
     const KEY_BACKSPACE = 14;
     const KEY_ENTER = 28;
     const KEY_LEFT = 105; // Arrow left
@@ -507,7 +508,7 @@ fn keyboard_modifiers(
     _ = serial; // not used
     _ = mods_latched; // not used
     _ = group; // not used
-    const app: *ginwaGTK = @ptrCast(@alignCast(data.?));
+    const app: *Application = @ptrCast(@alignCast(data.?));
 
     // Wayland modifier masks
     const SHIFT_MASK = 0x1;

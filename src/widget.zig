@@ -11,7 +11,7 @@ const utils = @import("utils.zig");
 
 pub var default_allocator: std.mem.Allocator = undefined;
 
-pub fn init(alloc: std.mem.Allocator, app: *ginwaGTK) !*ginwaGTK {
+pub fn init(alloc: std.mem.Allocator, app: *Application) !*Application {
     default_allocator = alloc;
 
     app.display = c.wl_display_connect(null);
@@ -24,13 +24,6 @@ pub fn init(alloc: std.mem.Allocator, app: *ginwaGTK) !*ginwaGTK {
     };
     _ = c.wl_registry_add_listener(registry, &registry_listener, app);
     _ = c.wl_display_roundtrip(app.display);
-
-    // c.xdg_toplevel_sst_title(self.xdg_toplevel, self.win_title);
-    c.xdg_toplevel_set_title(app.xdg_toplevel, app.win_title);
-
-    // default_gpa = self.gpa;
-    // default_allocator = self.allocator();
-
     return app;
 }
 
@@ -43,7 +36,7 @@ pub const xdg_wm_base_listener = c.xdg_wm_base_listener{
 };
 
 fn registryHandleGlobal(user_data: ?*anyopaque, registry: ?*c.struct_wl_registry, name: u32, interface: [*c]const u8, version: u32) callconv(.c) void {
-    const app: *ginwaGTK = @ptrCast(@alignCast(user_data));
+    const app: *Application = @ptrCast(@alignCast(user_data));
     std.debug.print("Found global {} of interface {s} version {}\n", .{ name, interface, version });
 
     const iface = std.mem.span(interface);
@@ -54,32 +47,13 @@ fn registryHandleGlobal(user_data: ?*anyopaque, registry: ?*c.struct_wl_registry
             &c.wl_compositor_interface,
             version,
         ));
-        app.surface = c.wl_compositor_create_surface(app.compositor);
-        app.cursor_surface = c.wl_compositor_create_surface(app.compositor);
     }
 
     if (std.mem.eql(u8, iface, "xdg_wm_base")) {
-        app.xdg_wm_base = @ptrCast(c.wl_registry_bind(
-            registry,
-            name,
-            &c.xdg_wm_base_interface,
-            4,
-        ));
-        app.xdg_surface = c.xdg_wm_base_get_xdg_surface(app.xdg_wm_base, app.surface);
-        _ = c.xdg_surface_add_listener(app.xdg_surface, &xdg_surface_listener, app);
-
-        app.xdg_toplevel = c.xdg_surface_get_toplevel(app.xdg_surface);
-        _ = c.xdg_toplevel_add_listener(app.xdg_toplevel, &xdg_toplevel_listener, app);
-        _ = c.xdg_wm_base_add_listener(app.xdg_wm_base, &xdg_wm_base_listener, app);
     }
 
     if (std.mem.eql(u8, iface, "wl_shm")) {
         app.shm = @ptrCast(c.wl_registry_bind(registry, name, &c.wl_shm_interface, 1));
-
-        app.cursor_theme = c.wl_cursor_theme_load("todo", 24, app.shm);
-        app.default_cursor = c.wl_cursor_theme_get_cursor(app.cursor_theme, "left_ptr");
-        app.text_cursor = c.wl_cursor_theme_get_cursor(app.cursor_theme, "xterm");
-        app.hand_cursor = c.wl_cursor_theme_get_cursor(app.cursor_theme, "hand1");
     }
 
     if (std.mem.eql(u8, iface, "wl_seat")) {
@@ -114,7 +88,7 @@ pub const data_source_listener = c.wl_data_source_listener{
 
 fn dataSourceSend(data: ?*anyopaque, data_source: ?*c.wl_data_source, mime_type: [*c]const u8, fd: i32) callconv(.c) void {
     _ = data_source;
-    const app: *ginwaGTK = @ptrCast(@alignCast(data.?));
+    const app: *Application = @ptrCast(@alignCast(data.?));
     const mime_str = std.mem.span(mime_type);
 
     if (std.mem.eql(u8, mime_str, "text/plain")) {
@@ -133,7 +107,7 @@ fn dataSourceTarget(data: ?*anyopaque, data_source: ?*c.wl_data_source, mime_typ
 
 fn dataSourceCancelled(data: ?*anyopaque, data_source: ?*c.wl_data_source) callconv(.c) void {
     _ = data_source;
-    const app: *ginwaGTK = @ptrCast(@alignCast(data.?));
+    const app: *Application = @ptrCast(@alignCast(data.?));
     _ = c.wl_data_source_destroy(app.data_source);
     app.data_source = null;
 }
@@ -144,16 +118,12 @@ fn registryHandleGlobalRemove(user_data: ?*anyopaque, registry: ?*c.struct_wl_re
     std.debug.print("Removed global {}\n", .{name});
 }
 
-pub const ginwaGTK = struct {
+pub const Application = struct {
     // wayland
     display: ?*c.wl_display = null,
     registry: ?*c.wl_registry = null,
     compositor: ?*c.wl_compositor = null,
     shm: ?*c.wl_shm = null,
-    xdg_wm_base: ?*c.xdg_wm_base = null,
-    surface: ?*c.wl_surface = null,
-    xdg_surface: ?*c.xdg_surface = null,
-    xdg_toplevel: ?*c.xdg_toplevel = null,
     running: bool = false,
     wl_pointer: ?*c.wl_pointer = null,
     wl_seat: ?*c.wl_seat = null,
@@ -165,16 +135,14 @@ pub const ginwaGTK = struct {
     last_serial: u32 = 0,
 
     // cursor
-    cursor_surface: ?*c.wl_surface = null,
-    cursor_theme: ?*c.wl_cursor_theme = null,
-    default_cursor: ?*c.wl_cursor = null,
-    text_cursor: ?*c.wl_cursor = null,
-    hand_cursor: ?*c.wl_cursor = null,
-    current_sursor: [*c]const u8 = "",
+    // cursor_surface: ?*c.wl_surface = null,
+    // cursor_theme: ?*c.wl_cursor_theme = null,
+    // default_cursor: ?*c.wl_cursor = null,
+    // text_cursor: ?*c.wl_cursor = null,
+    // hand_cursor: ?*c.wl_cursor = null,
+    // current_sursor: [*c]const u8 = "",
 
     // screen
-    old_buffer: ?*c.wl_buffer = null,
-    current_buffer: ?*c.wl_buffer = null,
     shm_data: [*]u8 = undefined,
 
     // clipboard to copy paste text
@@ -198,12 +166,376 @@ pub const ginwaGTK = struct {
     mouse_last_click_widget: ?*Widget = null,
     mouse_quick_clink_interval: i64 = 500_000_000, // 500ms in nanoseconds
 
-    // memory management
-    // gpa: std.heap.GeneralPurposeAllocator(.{}) = .{},
-    // memory: ?std.mem.Allocator = null,
+    // ui component
+    // window: Widget = undefined,
+    // focused_widget: ?*Widget = null,
+    // hovered_widget: ?*Widget = null,
+
+    // keyboard
+    shift_pressed: bool = false,
+    ctrl_pressed: bool = false,
+    alt_pressed: bool = false,
+    pressed_key: ?u32 = null,
+    keyboard_rate: i32 = 0.0,
+    keyboard_delay: i32 = 0.0,
+    next_key_repeat_time: i64 = 0,
+
+    key_repeat_active: bool = false,
+
+    // cursor blinking
+    cursor_visible: bool = true,
+    last_cursor_blink: i64 = 0,
+    cursor_blink_interval: i64 = 500_000_000, // 500ms in nanoseconds
+    //
+    event_loop_callback: ?*const fn (*Application) anyerror!void = null,
+
+    // windows
+    windows: std.ArrayList(*Window) = .empty,
+    focused_window: ?*Window = null,
+
+
+    pub fn should_update_ui(self: *Application) bool {
+        return self.windows.items.len > 0;
+    }
+
+    pub fn get_latest_window(self: *Application) ?*Window {
+        return self.windows.getLastOrNull();
+    }
+
+    pub fn event_loop(app: *Application) !void {
+        return wr.renderEventLoop(app);
+    }
+
+    pub fn deinit(self: *Application) void {
+        if (self.windows.items.len > 0) {
+            for (self.windows.items) |window| {
+                // Clean up widget children first
+                window.widget.deinit();
+                default_allocator.destroy(window.widget);
+
+                c.wl_registry_destroy(window.registry);
+                default_allocator.destroy(window);
+            }
+            self.windows.deinit(default_allocator);
+            self.windows = .empty;
+        }
+    }
+
+    pub fn deinit_window(self: *Application, window: *Window) void {
+        var idx: usize = 0;
+        for (self.windows.items) |w| {
+            if (std.mem.eql(u8, w.id, window.id)) {
+                window.widget.deinit();
+                default_allocator.destroy(window.widget);
+
+                // Destroy Wayland protocol objects in reverse order of creation
+                if (window.xdg_toplevel) |xdg_toplevel| {
+                    c.xdg_toplevel_destroy(xdg_toplevel);
+                }
+                if (window.xdg_surface) |xdg_surface| {
+                    c.xdg_surface_destroy(xdg_surface);
+                }
+                if (window.surface) |surface| {
+                    c.wl_surface_destroy(surface);
+                }
+                if (window.registry) |registry| {
+                    c.wl_registry_destroy(registry);
+                }
+
+                default_allocator.destroy(window);
+                _ = self.windows.swapRemove(idx);
+                break;
+            }
+
+            idx += 1;
+        }
+    }
+
+    pub fn allocator(self: *Application) std.mem.Allocator {
+        _ = self;
+        return default_allocator;
+    }
+
+    pub fn trigger_event_callback(self: *Application) !void {
+        if (self.event_loop_callback) |callback| {
+            try callback(self);
+        }
+    }
+
+    pub fn find_widget_by_id(self: *Application, id: []const u8) ?*Widget {
+        for (self.windows.items) |window| {
+            const widget = window.widget.find_widget_by_id(id);
+            if (widget) |found_widget| {
+                return found_widget;
+            }
+        }
+
+        return null;
+    }
+
+    pub fn add_window(self: *Application, props: WindowProps) !*Window {
+        for (self.windows.items) |window| {
+            if (std.mem.eql(u8, std.mem.span(window.win_title), std.mem.span(props.title))) {
+                return window;
+            }
+        }
+        const window = try default_allocator.create(Window);
+
+        window.* = .{
+            .id = random.randomId(default_allocator) catch unreachable,
+            .app = self,
+        };
+
+        // register handler global
+        window.win_width = props.width;
+        window.win_height = props.height;
+        window.win_title = props.title;
+
+        const registry_listener = c.wl_registry_listener{
+            .global = registryHandleGlobalWwindow,
+            .global_remove = registryHandleGlobalRemove,
+        };
+        window.registry = c.wl_display_get_registry(window.app.display);
+
+        _ = c.wl_registry_add_listener(window.registry, &registry_listener, window);
+        _ = c.wl_display_roundtrip(window.app.display);
+
+        _ = c.xdg_toplevel_set_title(window.xdg_toplevel, props.title);
+
+        const widget = try default_allocator.create(Widget);
+        widget.* = .{
+            .app = window.app,
+            .window = window,
+            .guid = "root",
+            .parent_guid = "",
+            .widget_type = .Layout,
+            .orientation = .Column,
+            .background_color = props.background_color,
+            .scrollable = props.is_scrollable,
+            .is_parent = true,
+            .width = props.width,
+            .height = props.height,
+            .padding = props.padding,
+            .padding_left = props.padding_left,
+            .padding_right = props.padding_right,
+            .padding_top = props.padding_top,
+            .padding_bottom = props.padding_bottom,
+        };
+
+        window.widget = widget;
+
+        try self.windows.append(default_allocator, window);
+
+        _ = wr.redraw2(window);
+        return window;
+    }
+
+    pub fn redraw_all(self: *Application) void {
+        for (self.windows.items) |window| {
+            wr.redraw2(window);
+        }
+    }
+
+    pub fn redraw_window(self: *Application, window: *Window) void {
+        _ = self;
+        wr.redraw2(window);
+    }
+
+    pub fn event_loop_new(self: *Application) !void {
+        const app = self;
+        self.running = true;
+
+        for (self.windows.items) |window| {
+            wr.redraw2(window);
+        }
+
+        while (self.windows.items.len > 0) {
+            // std.debug.print("Event loop time {d}\n", .{utils.getNanoTime()});
+            // First, dispatch any pending events
+            while (c.wl_display_prepare_read(app.display) != 0) {
+                _ = c.wl_display_dispatch_pending(app.display);
+            }
+
+            _ = c.wl_display_flush(app.display);
+
+            const current_time = utils.getNanoTime();
+            const time_since_blink = current_time - app.last_cursor_blink;
+
+            if (app.focused_window) |focused_window| {
+                // Check if cursor needs to blink
+                var should_blink = false;
+                if (focused_window.focused_widget) |widget| {
+                    if (widget.widget_type == .Input) {
+                        if (time_since_blink >= app.cursor_blink_interval) {
+                            should_blink = true;
+                        }
+                    }
+                }
+                //
+                // if (should_blink and app.key_repeat_active == false) {
+                //     // std.debug.print("Blinking cursor\n", .{});
+                //     // Cancel the read since we're going to redraw
+                //     // c.wl_display_cancel_read(app.display);
+                //
+                //     app.cursor_visible = !app.cursor_visible;
+                //     app.last_cursor_blink = current_time;
+                //
+                //     // Redraw for cursor blink
+                //     wr.redraw2(focused_window);
+                //
+                //     // if (focused_window.focused_widget) |widget| {
+                //     //     c.wl_surface_damage(focused_window.surface, widget.x, widget.y, widget.width, widget.height);
+                //     // }
+                //     // c.wl_surface_commit(focused_window.surface);
+                // }
+                //
+                if (app.key_repeat_active and app.keyboard_rate > 0) {
+                    const now = utils.getNanoTime();
+                    if (now >= app.next_key_repeat_time) {
+                        if (app.pressed_key) |k| {
+                            if (focused_window.focused_widget) |fw| {
+                                if (fw.widget_type == .Input) {
+                                    wk.handleInputKey(app, fw, k, app.shift_pressed, app.ctrl_pressed, app.allocator());
+
+                                    wr.redraw2(focused_window);
+
+                                    // Schedule next repeat
+                                    const interval_ms = @divFloor(1000, app.keyboard_rate);
+                                    app.next_key_repeat_time = now + (interval_ms * 1_000_000);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            const fd = c.wl_display_get_fd(app.display);
+            var poll_fd = std.os.linux.pollfd{
+                .fd = fd,
+                .events = std.os.linux.POLL.IN,
+                .revents = 0,
+            };
+
+            // Calculate timeout until next blink
+            var timeout_ms: i32 = 2; // Default 16ms
+            if (app.focused_window) |focused_window| {
+                if (focused_window.focused_widget) |widget| {
+                    if (widget.widget_type == .Input) {
+                        const remaining = app.cursor_blink_interval - time_since_blink;
+                        timeout_ms = @intCast(@divFloor(remaining, 1_000_000));
+                        if (timeout_ms < 1) timeout_ms = 1;
+                    }
+                }
+            }
+
+            const poll_result = std.os.linux.poll(@ptrCast(&poll_fd), 1, timeout_ms);
+
+            if (poll_result > 0) {
+                // Events are ready, read them
+                _ = c.wl_display_read_events(app.display);
+                _ = c.wl_display_dispatch_pending(app.display);
+                _ = try app.trigger_event_callback();
+            } else {
+                // Timeout or error, cancel the read
+                c.wl_display_cancel_read(app.display);
+            }
+        }
+    }
+};
+
+fn registryHandleGlobalWwindow(user_data: ?*anyopaque, registry: ?*c.struct_wl_registry, name: u32, interface: [*c]const u8, version: u32) callconv(.c) void {
+    const window: *Window = @ptrCast(@alignCast(user_data));
+    const app = window.app;
+    std.debug.print("Found global {} of interface {s} version {}\n", .{ name, interface, version });
+
+    const iface = std.mem.span(interface);
+    if (std.mem.eql(u8, iface, "wl_compositor")) {
+        window.surface = c.wl_compositor_create_surface(app.compositor);
+        window.cursor_surface = c.wl_compositor_create_surface(app.compositor);
+    }
+
+    if (std.mem.eql(u8, iface, "xdg_wm_base")) {
+        window.xdg_wm_base = @ptrCast(c.wl_registry_bind(
+            registry,
+            name,
+            &c.xdg_wm_base_interface,
+            4,
+        ));
+        window.xdg_surface = c.xdg_wm_base_get_xdg_surface(window.xdg_wm_base, window.surface);
+
+        _ = c.xdg_surface_add_listener(window.xdg_surface, &xdg_surface_listener, window);
+
+        window.xdg_toplevel = c.xdg_surface_get_toplevel(window.xdg_surface);
+        _ = c.xdg_toplevel_add_listener(window.xdg_toplevel, &xdg_toplevel_listener2, window);
+        _ = c.xdg_wm_base_add_listener(window.xdg_wm_base, &xdg_wm_base_listener, window);
+    }
+
+    if (std.mem.eql(u8, iface, "wl_shm")) {
+        window.cursor_theme = c.wl_cursor_theme_load("todo", 24, app.shm);
+        window.default_cursor = c.wl_cursor_theme_get_cursor(window.cursor_theme, "left_ptr");
+        window.text_cursor = c.wl_cursor_theme_get_cursor(window.cursor_theme, "xterm");
+        window.hand_cursor = c.wl_cursor_theme_get_cursor(window.cursor_theme, "hand1");
+    }
+}
+
+pub const WindowProps = struct {
+    title: [*c]const u8,
+    width: i32,
+    height: i32,
+    is_scrollable: bool = true,
+    background_color: u32 = 0xFF333333,
+    padding: i32 = 0,
+    padding_left: ?i32 = null,
+    padding_right: ?i32 = null,
+    padding_top: ?i32 = null,
+    padding_bottom: ?i32 = null,
+};
+
+pub const Window = struct {
+    id: []const u8 = "",
+    xdg_wm_base: ?*c.xdg_wm_base = null,
+    surface: ?*c.wl_surface = null,
+    xdg_surface: ?*c.xdg_surface = null,
+    xdg_toplevel: ?*c.xdg_toplevel = null,
+    registry: ?*c.wl_registry = null,
+
+    // screen
+    old_buffer: ?*c.wl_buffer = null,
+    current_buffer: ?*c.wl_buffer = null,
+    shm_data: [*]u8 = undefined,
+
+    last_serial: u32 = 0,
+    // cursor
+    cursor_surface: ?*c.wl_surface = null,
+    cursor_theme: ?*c.wl_cursor_theme = null,
+    default_cursor: ?*c.wl_cursor = null,
+    text_cursor: ?*c.wl_cursor = null,
+    hand_cursor: ?*c.wl_cursor = null,
+    current_sursor: [*c]const u8 = "",
+
+    // clipboard to copy paste text
+    clipboard_text: ?[]u8 = null,
+
+    // window properties
+    win_title: [*c]const u8 = "App",
+    win_width: i32 = 800,
+    win_height: i32 = 600,
+    layout_initialized: bool = false,
+
+    // mouse
+    pointer_x: f64 = 0,
+    pointer_y: f64 = 0,
+    mouse_dragging: bool = false,
+    mouse_drag_start_widget: ?*Widget = null,
+    mouse_drag_start_x: f64 = 0,
+    mouse_drag_start_y: f64 = 0,
+    mouse_last_click_time: i64 = 0,
+    mouse_click_count: i32 = 0,
+    mouse_last_click_widget: ?*Widget = null,
+    mouse_quick_clink_interval: i64 = 500_000_000, // 500ms in nanoseconds
 
     // ui component
-    window: Widget = undefined,
+    widget: *Widget = undefined,
     focused_widget: ?*Widget = null,
     hovered_widget: ?*Widget = null,
 
@@ -222,84 +554,16 @@ pub const ginwaGTK = struct {
     cursor_visible: bool = true,
     last_cursor_blink: i64 = 0,
     cursor_blink_interval: i64 = 500_000_000, // 500ms in nanoseconds
-    //
-    event_loop_callback: ?*const fn (*ginwaGTK) void = null,
+    event_loop_callback: ?*const fn (*Application) anyerror!void = null,
 
-    pub fn event_loop(app: *ginwaGTK) !void {
-        return wr.renderEventLoop(app);
+    app: *Application,
+
+    pub fn add_child(self: *Window, child: *Widget) !void {
+        _ = try self.widget.add_child(child);
     }
 
-    pub fn redraw(self: *ginwaGTK, window_width: i32, window_height: i32) void {
-        self.win_width = window_width;
-        self.win_height = window_height;
-        if (self.running == false) {
-            return;
-        }
-        if (window_width == 0 or window_height == 0) {
-            return;
-        }
-
-        wr.redraw(self);
-        std.debug.print("width: {d}, height: {d}\n", .{ window_width, window_height });
-    }
-
-    pub fn free(self: *ginwaGTK) void {
-        std.debug.print("free\n", .{});
-
-        // Clean up window children first
-        if (self.window.children) |*children| {
-            for (children.items) |child| {
-                child.deinit();
-                self.allocator().destroy(child);
-            }
-            children.deinit(self.allocator());
-        }
-        if (self.cursor_theme) |cursor_theme| {
-            c.wl_cursor_theme_destroy(cursor_theme);
-        }
-
-        if (self.display) |display| {
-            _ = c.wl_display_disconnect(display);
-        }
-    }
-
-    pub fn allocator(self: *ginwaGTK) std.mem.Allocator {
-        _ = self;
-        return default_allocator;
-    }
-
-    pub fn trigger_event_callback(self: *ginwaGTK) void {
-        if (self.event_loop_callback) |callback| {
-            callback(self);
-        }
-    }
-
-    pub fn find_widget_by_id(self: *ginwaGTK, id: []const u8) ?*Widget {
-        const widget = self.window.find_widget_by_id(id);
-        if (widget) |found_widget| {
-            return found_widget;
-        }
-
-        return null;
-    }
-
-    pub fn find_widget(self: *ginwaGTK, widget: *Widget) ?*Widget {
-        const guid = widget.guid;
-        const f_widget = self.window.find_widget_by_guid(guid);
-        if (f_widget) |found_widget| {
-            return found_widget;
-        }
-
-        return null;
-    }
-
-    pub fn find_widget_by_guid(self: *ginwaGTK, guid: []const u8) ?*Widget {
-        const f_widget = self.window.find_widget_by_guid(guid);
-        if (f_widget) |found_widget| {
-            return found_widget;
-        }
-
-        return null;
+    pub fn add_children(self: *Window, children: anytype) !void {
+        _ = try self.widget.add_children(children);
     }
 };
 
@@ -330,6 +594,7 @@ fn xdgSurfaceConfigure(
     xdg_surface: ?*c.xdg_surface,
     serial: u32,
 ) callconv(.c) void {
+    std.debug.print("xdgSurfaceConfigure\n", .{});
     c.xdg_surface_ack_configure(xdg_surface, serial);
     _ = data;
 }
@@ -339,11 +604,24 @@ fn xdgWmBasePing(
     xdg_wm_base: ?*c.xdg_wm_base,
     serial: u32,
 ) callconv(.c) void {
+    // std.debug.print("xdgWmBasePing\n", .{});
     _ = data;
     c.xdg_wm_base_pong(xdg_wm_base, serial);
 }
 
-fn xdgToplevelConfigure(
+fn xdgToplevelClose2(
+    data: ?*anyopaque,
+    xdg_toplevel: ?*c.xdg_toplevel,
+) callconv(.c) void {
+    _ = xdg_toplevel;
+    const window: *Window = @ptrCast(@alignCast(data));
+    const app: *Application = window.app;
+
+
+    app.deinit_window(window);
+}
+
+fn xdgToplevelConfigure2(
     data: ?*anyopaque,
     xdg_toplevel: ?*c.xdg_toplevel,
     width: i32,
@@ -351,25 +629,34 @@ fn xdgToplevelConfigure(
     states: ?*c.wl_array,
 ) callconv(.c) void {
     _ = xdg_toplevel;
-    _ = states;
+    std.debug.print("toplevel2 width: {d}, height: {d}\n", .{ width, height });
+    const window: *Window = @ptrCast(@alignCast(data));
 
-    const app: *ginwaGTK = @ptrCast(@alignCast(data));
-    ginwaGTK.redraw(app, width, height);
+    if (states) |state_array| {
+        var activated = false;
+        const data_ptr = @as([*]u32, @ptrCast(@alignCast(state_array.data)));
+        const count = state_array.size / @sizeOf(u32);
+        var i: usize = 0;
+        while (i < count) : (i += 1) {
+            if (data_ptr[i] == c.XDG_TOPLEVEL_STATE_ACTIVATED) {
+                activated = true;
+                window.app.focused_window = window;
+                std.debug.print("Window activated/focused\n", .{});
+            }
+        }
+
+        if (!activated) {
+            std.debug.print("Window deactivated/lost focus\n", .{});
+        }
+    }
+
+    // window.win_width = width;
+    // window.win_height = height;
 }
 
-fn xdgToplevelClose(
-    data: ?*anyopaque,
-    xdg_toplevel: ?*c.xdg_toplevel,
-) callconv(.c) void {
-    _ = xdg_toplevel;
-    const app: *ginwaGTK = @ptrCast(@alignCast(data));
-    app.running = false;
-    std.debug.print("Window closed\n", .{});
-}
-
-pub const xdg_toplevel_listener = c.xdg_toplevel_listener{
-    .configure = xdgToplevelConfigure,
-    .close = xdgToplevelClose,
+pub const xdg_toplevel_listener2 = c.xdg_toplevel_listener{
+    .configure = xdgToplevelConfigure2,
+    .close = xdgToplevelClose2,
 };
 
 // input system
@@ -381,7 +668,7 @@ fn seat_capabilities(
     capabilities: u32,
 ) callconv(.c) void {
     _ = seat;
-    const app: *ginwaGTK = @ptrCast(@alignCast(data.?));
+    const app: *Application = @ptrCast(@alignCast(data.?));
 
     std.debug.print("window witdh: {}\n", .{app.win_width});
 
@@ -474,6 +761,9 @@ pub const DecodedImage = struct {
 pub const LayoutAlignment = enum { Start, Center, End, SpaceBetween, SpaceAround, SpaceEvenly };
 
 pub const Widget = struct {
+    app: *Application = undefined,
+    window: *Window = undefined,
+
     guid: []const u8 = "",
     parent_guid: []const u8 = "",
     id: []const u8 = "root",
@@ -521,7 +811,7 @@ pub const Widget = struct {
     border_color: ?u32 = null,
     border_width: ?i32 = 0,
 
-    on_click: ?*const fn (*ginwaGTK, *Widget, ?*anyopaque) void = null,
+    on_click: ?*const fn (*Application, *Widget, ?*anyopaque) void = null,
     click_data: ?*anyopaque = null,
 
     on_input_text_change: ?*const fn (input_text: []const u8, data: ?*anyopaque) void = null,
@@ -654,7 +944,7 @@ pub const Widget = struct {
             y <= @as(f64, @floatFromInt(rect.y + rect.height));
     }
 
-    pub fn trigger_click(self: *Widget, app: *ginwaGTK) void {
+    pub fn trigger_click(self: *Widget, app: *Application) void {
         if (self.on_click) |callback| {
             callback(app, self, self.click_data);
         }
@@ -685,8 +975,8 @@ pub const Widget = struct {
     }
 
     pub fn deinit(self: *Widget) void {
-        if (self.children) |*list| {
-            for (list.items) |child| {
+        if (self.children) |*children| {
+            for (children.items) |child| {
                 if (child.image) |decodedImage| {
                     c.stbi_image_free(decodedImage.rgba);
                     default_allocator.free(decodedImage.file_buffer);
@@ -694,7 +984,7 @@ pub const Widget = struct {
                 child.deinit();
                 default_allocator.destroy(child);
             }
-            list.deinit(default_allocator);
+            children.deinit(default_allocator);
         }
     }
 
@@ -733,5 +1023,4 @@ pub const Widget = struct {
 
         return null;
     }
-
 };

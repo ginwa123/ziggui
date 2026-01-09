@@ -6,7 +6,7 @@ const ginwaGTK = w.ginwaGTK;
 
 // Input component constructor
 pub const PropsInput = struct {
-    name: []const u8 = "",
+    id: []const u8 = "",
     width: i32 = 200,
     height: i32 = 30,
     placeholder: []const u8 = "",
@@ -39,7 +39,7 @@ pub fn build(props: PropsInput) *Widget {
 
     widget.* = .{
         .guid = random.randomId(allocator) catch unreachable,
-        .id = props.name,
+        .id = props.id,
         .width = props.width,
         .height = props.height,
         .desired_width = if (props.width >= 0) props.width else null,
